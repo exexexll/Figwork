@@ -1,0 +1,24 @@
+{
+  "name": "figwork",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter @figwork/db generate",
+    "db:push": "pnpm --filter @figwork/db push",
+    "db:migrate": "pnpm --filter @figwork/db migrate",
+    "db:studio": "pnpm --filter @figwork/db studio"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

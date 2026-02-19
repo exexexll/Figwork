@@ -1,0 +1,982 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// Users (Interview Owners) - synced from Clerk
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  clerkId   String   @unique @map("clerk_id") @db.VarChar(255)
+  email     String   @db.VarChar(255)
+  name      String?  @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  templates       InterviewTemplate[]
+  knowledgeFiles  KnowledgeFile[]
+  knowledgeChunks KnowledgeChunk[]
+  companyProfile  CompanyProfile?
+
+  @@map("users")
+}
+
+// Interview Templates
+model InterviewTemplate {
+  id                  String   @id @default(uuid()) @db.Uuid
+  ownerId             String   @map("owner_id") @db.Uuid
+  name                String   @db.VarChar(255)
+  mode                String   @default("application") @db.VarChar(20) // "application" or "inquiry"
+  personaPrompt       String   @map("persona_prompt") @db.Text
+  toneGuidance        String?  @map("tone_guidance") @db.Text
+  // Inquiry mode settings
+  inquiryWelcome      String?  @map("inquiry_welcome") @db.Text // Welcome message for inquiry mode
+  inquiryGoal         String?  @map("inquiry_goal") @db.Text // What info to gather (instructions for AI)
+  // Application mode settings
+  globalFollowupLimit Int      @default(3) @map("global_followup_limit")
+  timeLimitMinutes    Int      @default(30) @map("time_limit_minutes")
+  // Voice settings (both modes)
+  enableVoiceOutput   Boolean  @default(false) @map("enable_voice_output")
+  voiceId             String   @default("nova") @map("voice_id") @db.VarChar(50)
+  voiceIntroMessage   String?  @map("voice_intro_message") @db.Text // Custom intro message for voice mode
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  owner           User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  questions       Question[]
+  links           InterviewLink[]
+  sessions        InterviewSession[]
+  knowledgeFiles  KnowledgeFile[]
+  knowledgeChunks KnowledgeChunk[]
+
+  @@map("interview_templates")
+}
+
+// Questions (ordered per template)
+model Question {
+  id           String   @id @default(uuid()) @db.Uuid
+  templateId   String   @map("template_id") @db.Uuid
+  questionText String   @map("question_text") @db.Text
+  rubric       String?  @db.Text
+  maxFollowups Int      @default(2) @map("max_followups")
+  askVerbatim  Boolean  @default(true) @map("ask_verbatim")
+  orderIndex   Int      @map("order_index")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  template            InterviewTemplate     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  transcriptMessages  TranscriptMessage[]
+  evaluationDecisions EvaluationDecision[]
+
+  @@map("questions")
+}
+
+// Interview Links
+model InterviewLink {
+  id                String    @id @default(uuid()) @db.Uuid
+  templateId        String    @map("template_id") @db.Uuid
+  token             String    @unique @db.VarChar(64)
+  linkType          String    @map("link_type") @db.VarChar(20)
+  expiresAt         DateTime? @map("expires_at") @db.Timestamptz
+  maxUses           Int?      @map("max_uses")
+  useCount          Int       @default(0) @map("use_count")
+  isActive          Boolean   @default(true) @map("is_active")
+  // File upload settings
+  allowFileUpload   Boolean   @default(false) @map("allow_file_upload")
+  maxFiles          Int       @default(3) @map("max_files")
+  maxFileSizeMb     Int       @default(10) @map("max_file_size_mb")
+  allowedFileTypes  String[]  @default(["pdf", "docx", "txt", "md"]) @map("allowed_file_types")
+  // Voice settings (override template)
+  enableVoiceOutput Boolean?  @map("enable_voice_output")
+  voiceId           String?   @map("voice_id") @db.VarChar(50)
+  // Mode override (null = inherit from template)
+  mode              String?   @db.VarChar(20) // "application" or "inquiry" or null to inherit
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  template InterviewTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  sessions InterviewSession[]
+
+  @@map("interview_links")
+}
+
+// Interview Sessions
+model InterviewSession {
+  id                   String    @id @default(uuid()) @db.Uuid
+  linkId               String    @map("link_id") @db.Uuid
+  templateId           String    @map("template_id") @db.Uuid
+  sessionToken         String    @unique @map("session_token") @db.VarChar(64)
+  status               String    @default("pending") @db.VarChar(30)
+  currentQuestionIndex Int       @default(0) @map("current_question_index")
+  followupsUsedCurrent Int       @default(0) @map("followups_used_current")
+  startedAt            DateTime? @map("started_at") @db.Timestamptz
+  completedAt          DateTime? @map("completed_at") @db.Timestamptz
+  lastActivityAt       DateTime? @map("last_activity_at") @db.Timestamptz
+  tokenExpiresAt       DateTime  @default(dbgenerated("NOW() + INTERVAL '24 hours'")) @map("token_expires_at") @db.Timestamptz
+  audioUrl             String?   @map("audio_url") @db.Text
+  audioPublicId        String?   @map("audio_public_id") @db.VarChar(255)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  link                InterviewLink         @relation(fields: [linkId], references: [id])
+  template            InterviewTemplate     @relation(fields: [templateId], references: [id])
+  transcriptMessages  TranscriptMessage[]
+  evaluationDecisions EvaluationDecision[]
+  summary             InterviewSummary?
+  candidateFiles      CandidateFile[]
+
+  @@index([linkId], map: "idx_sessions_link")
+  @@index([status], map: "idx_sessions_status")
+  @@index([tokenExpiresAt], map: "idx_sessions_token_expires")
+  @@map("interview_sessions")
+}
+
+// Candidate Uploaded Files (optional feature)
+model CandidateFile {
+  id                  String   @id @default(uuid()) @db.Uuid
+  sessionId           String   @map("session_id") @db.Uuid
+  filename            String   @db.VarChar(255)
+  fileType            String   @map("file_type") @db.VarChar(50)
+  fileSizeBytes       BigInt   @map("file_size_bytes")
+  cloudinaryPublicId  String   @map("cloudinary_public_id") @db.VarChar(255)
+  cloudinaryUrl       String   @map("cloudinary_url") @db.Text
+  extractedText       String?  @map("extracted_text") @db.Text
+  status              String   @default("uploaded") @db.VarChar(20)
+  uploadedAt          DateTime @default(now()) @map("uploaded_at") @db.Timestamptz
+
+  session InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId], map: "idx_candidate_files_session")
+  @@map("candidate_files")
+}
+
+// Transcript Messages
+model TranscriptMessage {
+  id          String   @id @default(uuid()) @db.Uuid
+  sessionId   String   @map("session_id") @db.Uuid
+  questionId  String?  @map("question_id") @db.Uuid
+  role        String   @db.VarChar(20)
+  content     String   @db.Text
+  messageType String   @map("message_type") @db.VarChar(30)
+  timestampMs BigInt   @map("timestamp_ms")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  session  InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question Question?        @relation(fields: [questionId], references: [id])
+
+  @@index([sessionId], map: "idx_messages_session")
+  @@map("transcript_messages")
+}
+
+// Evaluation Decisions (per turn)
+model EvaluationDecision {
+  id                  String   @id @default(uuid()) @db.Uuid
+  sessionId           String   @map("session_id") @db.Uuid
+  questionId          String?  @map("question_id") @db.Uuid
+  turnType            String   @map("turn_type") @db.VarChar(30)
+  isSufficient        Boolean? @map("is_sufficient")
+  missingPoints       Json?    @map("missing_points")
+  nextAction          String   @map("next_action") @db.VarChar(50)
+  followupQuestion    String?  @map("followup_question") @db.Text
+  rawControllerOutput Json?    @map("raw_controller_output")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  session  InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question Question?        @relation(fields: [questionId], references: [id])
+
+  @@map("evaluation_decisions")
+}
+
+// Interview Summaries
+model InterviewSummary {
+  id               String   @id @default(uuid()) @db.Uuid
+  sessionId        String   @unique @map("session_id") @db.Uuid
+  strengths        Json?
+  gaps             Json?
+  rubricCoverage   Json?    @map("rubric_coverage")
+  supportingQuotes Json?    @map("supporting_quotes")
+  rawSummary       String?  @map("raw_summary") @db.Text
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  session InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("interview_summaries")
+}
+
+// Knowledge Files
+model KnowledgeFile {
+  id                 String   @id @default(uuid()) @db.Uuid
+  ownerId            String   @map("owner_id") @db.Uuid
+  templateId         String   @map("template_id") @db.Uuid
+  filename           String   @db.VarChar(255)
+  fileType           String   @map("file_type") @db.VarChar(50)
+  cloudinaryPublicId String?  @map("cloudinary_public_id") @db.VarChar(255)
+  cloudinaryUrl      String?  @map("cloudinary_url") @db.Text
+  status             String   @default("pending") @db.VarChar(20)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  owner    User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  template InterviewTemplate   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  chunks   KnowledgeChunk[]
+
+  @@map("knowledge_files")
+}
+
+// Knowledge Chunks (for RAG)
+model KnowledgeChunk {
+  id         String                       @id @default(uuid()) @db.Uuid
+  fileId     String                       @map("file_id") @db.Uuid
+  ownerId    String                       @map("owner_id") @db.Uuid
+  templateId String                       @map("template_id") @db.Uuid
+  content    String                       @db.Text
+  pageNumber Int?                         @map("page_number")
+  section    String?                      @db.VarChar(255)
+  tokenCount Int?                         @map("token_count")
+  embedding  Unsupported("vector(1536)")?
+  createdAt  DateTime                     @default(now()) @map("created_at") @db.Timestamptz
+
+  file     KnowledgeFile     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  owner    User              @relation(fields: [ownerId], references: [id])
+  template InterviewTemplate @relation(fields: [templateId], references: [id])
+
+  @@index([templateId], map: "idx_chunks_template")
+  @@map("knowledge_chunks")
+}
+
+// ============================================
+// MARKETPLACE EXTENSION MODELS
+// ============================================
+
+// Student Profile (Executor)
+model StudentProfile {
+  id                    String    @id @default(uuid()) @db.Uuid
+  clerkId               String    @unique @map("clerk_id") @db.VarChar(255)
+  email                 String    @unique @db.VarChar(255)
+  phone                 String?   @db.VarChar(20)
+  name                  String    @db.VarChar(255)
+
+  // KYC Status
+  kycStatus             String    @default("pending") @map("kyc_status") @db.VarChar(20)
+  kycVerifiedAt         DateTime? @map("kyc_verified_at") @db.Timestamptz
+  kycSelfieUrl          String?   @map("kyc_selfie_url") @db.Text
+  stripeIdentityId      String?   @map("stripe_identity_id") @db.VarChar(255)
+
+  // Tax Status
+  taxStatus             String    @default("pending") @map("tax_status") @db.VarChar(20)
+  taxFormType           String?   @map("tax_form_type") @db.VarChar(10) // W9, W8BEN
+  taxVerifiedAt         DateTime? @map("tax_verified_at") @db.Timestamptz
+  stripeTaxId           String?   @map("stripe_tax_id") @db.VarChar(255)
+
+  // Contracts
+  contractStatus        String    @default("pending") @map("contract_status") @db.VarChar(20)
+  contractSignedAt      DateTime? @map("contract_signed_at") @db.Timestamptz
+  docusignEnvelopeId    String?   @map("docusign_envelope_id") @db.VarChar(255)
+
+  // Stripe Connect (for payouts)
+  stripeConnectId       String?   @map("stripe_connect_id") @db.VarChar(255)
+  stripeConnectStatus   String    @default("pending") @map("stripe_connect_status") @db.VarChar(20)
+
+  // Tier & Experience
+  tier                  String    @default("novice") @db.VarChar(20) // novice, pro, elite
+  totalExp              Int       @default(0) @map("total_exp")
+  currentStreak         Int       @default(0) @map("current_streak")
+
+  // Performance Metrics
+  tasksCompleted        Int       @default(0) @map("tasks_completed")
+  avgQualityScore       Float     @default(0) @map("avg_quality_score")
+  revisionRate          Float     @default(0) @map("revision_rate")
+  onTimeRate            Float     @default(0) @map("on_time_rate")
+
+  // Skill & History
+  skillTags             String[]  @map("skill_tags")
+  taskTypeHistory       Json?     @map("task_type_history")
+  specializations       String[]
+
+  // Risk Indicators
+  recentFailures        Int       @default(0) @map("recent_failures")
+  lastFailureAt         DateTime? @map("last_failure_at") @db.Timestamptz
+  suspensionCount       Int       @default(0) @map("suspension_count")
+
+  // Settings
+  dailyTaskLimit        Int       @default(5) @map("daily_task_limit")
+  powFrequency          String    @default("high") @map("pow_frequency") @db.VarChar(20)
+  notificationPrefs     Json?     @map("notification_prefs")
+
+  // Screening Interview Link (for extra gigs)
+  screeningTemplateId   String?   @map("screening_template_id") @db.Uuid
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  executions            Execution[]
+  powLogs               ProofOfWorkLog[]
+  payouts               Payout[]
+  disputes              Dispute[]       @relation("StudentDisputes")
+  coachingLogs          CoachingLog[]
+  uploadedFiles         StudentFile[]
+  transactions          PaymentTransaction[] @relation("StudentTransactions")
+  agreementSignatures   AgreementSignature[]
+
+  @@index([tier], map: "idx_students_tier")
+  @@index([totalExp], map: "idx_students_exp")
+  @@map("student_profiles")
+}
+
+// Student Uploaded Files (resume, certificates, etc.)
+model StudentFile {
+  id                    String    @id @default(uuid()) @db.Uuid
+  studentId             String    @map("student_id") @db.Uuid
+  filename              String    @db.VarChar(255)
+  fileType              String    @map("file_type") @db.VarChar(50)
+  category              String    @db.VarChar(50) // resume, certificate, portfolio, other
+  cloudinaryPublicId    String    @map("cloudinary_public_id") @db.VarChar(255)
+  cloudinaryUrl         String    @map("cloudinary_url") @db.Text
+  extractedText         String?   @map("extracted_text") @db.Text
+  uploadedAt            DateTime  @default(now()) @map("uploaded_at") @db.Timestamptz
+
+  student               StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@map("student_files")
+}
+
+// Company Profile
+model CompanyProfile {
+  id                    String    @id @default(uuid()) @db.Uuid
+  userId                String    @unique @map("user_id") @db.Uuid // Links to existing User model
+
+  // Business Info
+  companyName           String    @map("company_name") @db.VarChar(255)
+  legalName             String?   @map("legal_name") @db.VarChar(255)
+  ein                   String?   @db.VarChar(20)
+  address               Json?
+  website               String?   @db.VarChar(255)
+
+  // Verification
+  verificationStatus    String    @default("pending") @map("verification_status") @db.VarChar(20)
+  verifiedAt            DateTime? @map("verified_at") @db.Timestamptz
+
+  // Billing
+  stripeCustomerId      String?   @map("stripe_customer_id") @db.VarChar(255)
+  billingMethod         String?   @map("billing_method") @db.VarChar(20) // card, ach, wire
+  monthlyBudgetCap      Int?      @map("monthly_budget_cap")
+
+  // Contract
+  contractStatus        String    @default("pending") @map("contract_status") @db.VarChar(20)
+  contractSignedAt      DateTime? @map("contract_signed_at") @db.Timestamptz
+  docusignEnvelopeId    String?   @map("docusign_envelope_id") @db.VarChar(255)
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  user                  User      @relation(fields: [userId], references: [id])
+  workUnits             WorkUnit[]
+  escrowAccounts        Escrow[]
+  disputes              Dispute[] @relation("CompanyDisputes")
+  invoices              Invoice[]
+  budgetPeriods         BudgetPeriod[]
+  transactions          PaymentTransaction[] @relation("CompanyTransactions")
+
+  @@map("company_profiles")
+}
+
+// Work Units (Tasks)
+model WorkUnit {
+  id                    String    @id @default(uuid()) @db.Uuid
+  companyId             String    @map("company_id") @db.Uuid
+
+  // Basic Info
+  title                 String    @db.VarChar(255)
+  spec                  String    @db.Text
+  category              String    @db.VarChar(50)
+
+  // Requirements
+  acceptanceCriteria    Json      @map("acceptance_criteria") // Array of checklist items
+  deliverableFormat     String[]  @map("deliverable_format")
+  requiredSkills        String[]  @map("required_skills")
+  requiredDocuments     String[]  @map("required_documents") // e.g., ["resume", "portfolio"]
+  requiredFields        Json?     @map("required_fields") // Fields to collect via interview
+
+  // SLA
+  deadlineHours         Int       @map("deadline_hours")
+  revisionLimit         Int       @default(2) @map("revision_limit")
+
+  // Pricing
+  priceInCents          Int       @map("price_in_cents")
+  platformFeePercent    Float     @default(0.15) @map("platform_fee_percent")
+
+  // Complexity & Matching
+  complexityScore       Int       @default(1) @map("complexity_score") // 1-5
+  minTier               String    @default("novice") @map("min_tier") @db.VarChar(20)
+  preferredHistory      Int       @default(0) @map("preferred_history")
+  maxRevisionTendency   Float     @default(0.3) @map("max_revision_tendency")
+
+  // Clarity Metrics
+  clarityScore          Float?    @map("clarity_score")
+  clarityIssues         Json?     @map("clarity_issues")
+  hasExamples           Boolean   @default(false) @map("has_examples")
+  exampleUrls           String[]  @map("example_urls")
+
+  // Status
+  status                String    @default("draft") @db.VarChar(20) // draft, active, paused, completed, cancelled
+  publishedAt           DateTime? @map("published_at") @db.Timestamptz
+
+  // Interview template for info collection (optional)
+  infoCollectionTemplateId String? @map("info_collection_template_id") @db.Uuid
+
+  // Assignment mode: "auto" (first qualified student) or "manual" (company picks from applicants)
+  assignmentMode        String    @default("auto") @map("assignment_mode") @db.VarChar(20)
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company               CompanyProfile @relation(fields: [companyId], references: [id])
+  executions            Execution[]
+  escrow                Escrow?
+  milestoneTemplates    MilestoneTemplate[]
+  defectAnalyses        DefectAnalysis[]
+
+  @@index([status, category], map: "idx_workunits_status_category")
+  @@index([companyId, status], map: "idx_workunits_company")
+  @@index([minTier, complexityScore], map: "idx_workunits_matching")
+  @@map("work_units")
+}
+
+// Milestone Templates (per WorkUnit)
+model MilestoneTemplate {
+  id                    String    @id @default(uuid()) @db.Uuid
+  workUnitId            String    @map("work_unit_id") @db.Uuid
+
+  orderIndex            Int       @map("order_index")
+  description           String    @db.VarChar(500)
+  expectedCompletion    Float     @map("expected_completion") // 0-1, e.g., 0.25 = 25% through deadline
+
+  workUnit              WorkUnit  @relation(fields: [workUnitId], references: [id], onDelete: Cascade)
+  milestones            TaskMilestone[]
+
+  @@map("milestone_templates")
+}
+
+// Execution (Student taking a WorkUnit)
+model Execution {
+  id                    String    @id @default(uuid()) @db.Uuid
+  workUnitId            String    @map("work_unit_id") @db.Uuid
+  studentId             String    @map("student_id") @db.Uuid
+
+  // Status
+  status                String    @default("assigned") @db.VarChar(30)
+  // assigned -> clocked_in -> submitted -> in_review -> approved/revision_needed/failed
+
+  // Timeline
+  assignedAt            DateTime  @default(now()) @map("assigned_at") @db.Timestamptz
+  acceptedAt            DateTime? @map("accepted_at") @db.Timestamptz
+  clockedInAt           DateTime? @map("clocked_in_at") @db.Timestamptz
+  clockedOutAt          DateTime? @map("clocked_out_at") @db.Timestamptz
+  submittedAt           DateTime? @map("submitted_at") @db.Timestamptz
+  deadlineAt            DateTime  @map("deadline_at") @db.Timestamptz
+  completedAt           DateTime? @map("completed_at") @db.Timestamptz
+
+  // Submission
+  deliverableUrls       String[]  @map("deliverable_urls")
+  submissionNotes       String?   @map("submission_notes") @db.Text
+
+  // QA Results
+  qaCheckId             String?   @map("qa_check_id") @db.Uuid
+  qaVerdict             String?   @map("qa_verdict") @db.VarChar(20) // pass, revise, fail
+  revisionCount         Int       @default(0) @map("revision_count")
+
+  // Payout
+  payoutId              String?   @map("payout_id") @db.Uuid
+  payoutStatus          String    @default("pending") @map("payout_status") @db.VarChar(20)
+
+  // Info Collection Session (if task requires extra info)
+  infoSessionId         String?   @map("info_session_id") @db.Uuid
+
+  // Metrics
+  wasLate               Boolean   @default(false) @map("was_late")
+  qualityScore          Float?    @map("quality_score")
+  expEarned             Int       @default(0) @map("exp_earned")
+
+  workUnit              WorkUnit       @relation(fields: [workUnitId], references: [id])
+  student               StudentProfile @relation(fields: [studentId], references: [id])
+  powLogs               ProofOfWorkLog[]
+  milestones            TaskMilestone[]
+  qaCheck               QACheckResult? @relation(fields: [qaCheckId], references: [id])
+  payout                Payout?        @relation(fields: [payoutId], references: [id])
+  revisionRequests      RevisionRequest[]
+  defectAnalysis        DefectAnalysis?
+
+  @@index([studentId, status], map: "idx_executions_student")
+  @@index([workUnitId, status], map: "idx_executions_workunit")
+  @@index([status, deadlineAt], map: "idx_executions_deadline")
+  @@index([clockedInAt], map: "idx_executions_clocked")
+  @@map("executions")
+}
+
+// Proof of Work Logs
+model ProofOfWorkLog {
+  id                    String    @id @default(uuid()) @db.Uuid
+  executionId           String    @map("execution_id") @db.Uuid
+  studentId             String    @map("student_id") @db.Uuid
+
+  // Request
+  requestedAt           DateTime  @map("requested_at") @db.Timestamptz
+  respondedAt           DateTime? @map("responded_at") @db.Timestamptz
+  status                String    @default("pending") @db.VarChar(20) // pending, submitted, verified, failed, expired
+
+  // Submission
+  workPhotoUrl          String?   @map("work_photo_url") @db.Text
+  selfiePhotoUrl        String?   @map("selfie_photo_url") @db.Text
+  progressDescription   String?   @map("progress_description") @db.Text
+
+  // AI Analysis
+  faceMatchScore        Float?    @map("face_match_score")
+  faceConfidence        Float?    @map("face_confidence")
+  workRelevanceScore    Float?    @map("work_relevance_score")
+  progressScore         Float?    @map("progress_score")
+  suspiciousFlags       String[]  @map("suspicious_flags")
+  riskScore             Float?    @map("risk_score")
+
+  // Analysis metadata
+  analysisCompletedAt   DateTime? @map("analysis_completed_at") @db.Timestamptz
+  analysisError         String?   @map("analysis_error") @db.Text
+
+  execution             Execution      @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  student               StudentProfile @relation(fields: [studentId], references: [id])
+
+  @@index([executionId, status], map: "idx_pow_execution")
+  @@index([studentId, requestedAt], map: "idx_pow_student")
+  @@map("proof_of_work_logs")
+}
+
+// Task Milestones (per Execution)
+model TaskMilestone {
+  id                    String    @id @default(uuid()) @db.Uuid
+  executionId           String    @map("execution_id") @db.Uuid
+  templateId            String    @map("template_id") @db.Uuid
+
+  // Completion
+  completedAt           DateTime? @map("completed_at") @db.Timestamptz
+  evidenceUrl           String?   @map("evidence_url") @db.Text
+  notes                 String?   @db.Text
+
+  // Verification
+  verifiedAt            DateTime? @map("verified_at") @db.Timestamptz
+  verifiedBy            String?   @map("verified_by") @db.VarChar(50) // auto, company, figwork
+
+  execution             Execution         @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  template              MilestoneTemplate @relation(fields: [templateId], references: [id])
+
+  @@map("task_milestones")
+}
+
+// QA Check Results
+model QACheckResult {
+  id                    String    @id @default(uuid()) @db.Uuid
+  executionId           String    @unique @map("execution_id") @db.Uuid
+
+  checksRun             String[]  @map("checks_run")
+  checksPassed          Int       @map("checks_passed")
+  checksFailed          Int       @map("checks_failed")
+  checksWarning         Int       @map("checks_warning")
+
+  results               Json
+
+  autoApproved          Boolean   @default(false) @map("auto_approved")
+  blockers              String[]
+  warnings              String[]
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  executions            Execution[]
+
+  @@map("qa_check_results")
+}
+
+// Revision Requests
+model RevisionRequest {
+  id                    String    @id @default(uuid()) @db.Uuid
+  executionId           String    @map("execution_id") @db.Uuid
+
+  revisionNumber        Int       @map("revision_number")
+  issues                Json      // Array of { criterion, issue, suggestion, severity }
+  overallFeedback       String    @map("overall_feedback") @db.Text
+
+  revisionDeadlineAt    DateTime  @map("revision_deadline_at") @db.Timestamptz
+  completedAt           DateTime? @map("completed_at") @db.Timestamptz
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  execution             Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@map("revision_requests")
+}
+
+// Defect Analysis
+model DefectAnalysis {
+  id                    String    @id @default(uuid()) @db.Uuid
+  executionId           String?   @unique @map("execution_id") @db.Uuid
+  workUnitId            String    @map("work_unit_id") @db.Uuid
+
+  defectType            String    @map("defect_type") @db.VarChar(50)
+  rootCause             String    @map("root_cause") @db.VarChar(100)
+  preventable           Boolean
+
+  taskClarityScore      Float?    @map("task_clarity_score")
+  studentMatchScore     Float?    @map("student_match_score")
+  deadlineReasonable    Boolean?  @map("deadline_reasonable")
+  powCompliance         Float?    @map("pow_compliance")
+
+  resolution            String    @db.VarChar(50) // revised, failed, disputed
+
+  specImprovements      String[]  @map("spec_improvements")
+  processImprovements   String[]  @map("process_improvements")
+
+  analyzedAt            DateTime  @default(now()) @map("analyzed_at") @db.Timestamptz
+  analyzedBy            String    @map("analyzed_by") @db.VarChar(50)
+
+  execution             Execution? @relation(fields: [executionId], references: [id])
+  workUnit              WorkUnit   @relation(fields: [workUnitId], references: [id])
+
+  @@map("defect_analyses")
+}
+
+// Coaching Logs
+model CoachingLog {
+  id                    String    @id @default(uuid()) @db.Uuid
+  studentId             String    @map("student_id") @db.Uuid
+
+  triggerType           String    @map("trigger_type") @db.VarChar(50)
+  message               String    @db.Text
+  resources             String[]
+
+  actionsTaken          Json?     @map("actions_taken") // e.g., { reducedComplexity: true }
+  followUpAt            DateTime? @map("follow_up_at") @db.Timestamptz
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  student               StudentProfile @relation(fields: [studentId], references: [id])
+
+  @@map("coaching_logs")
+}
+
+// Escrow Accounts (per WorkUnit)
+model Escrow {
+  id                    String    @id @default(uuid()) @db.Uuid
+  workUnitId            String    @unique @map("work_unit_id") @db.Uuid
+  companyId             String    @map("company_id") @db.Uuid
+
+  amountInCents         Int       @map("amount_in_cents")
+  platformFeeInCents    Int       @map("platform_fee_in_cents")
+  netAmountInCents      Int       @map("net_amount_in_cents")
+
+  status                String    @default("pending") @db.VarChar(20) // pending, funded, released, refunded
+
+  stripePaymentIntentId String?   @map("stripe_payment_intent_id") @db.VarChar(255)
+  fundedAt              DateTime? @map("funded_at") @db.Timestamptz
+  releasedAt            DateTime? @map("released_at") @db.Timestamptz
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  workUnit              WorkUnit       @relation(fields: [workUnitId], references: [id])
+  company               CompanyProfile @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, status], map: "idx_escrow_company_status")
+  @@map("escrow_accounts")
+}
+
+// Payouts
+model Payout {
+  id                    String    @id @default(uuid()) @db.Uuid
+  studentId             String    @map("student_id") @db.Uuid
+
+  amountInCents         Int       @map("amount_in_cents")
+  status                String    @default("pending") @db.VarChar(20) // pending, processing, completed, failed
+
+  stripeTransferId      String?   @map("stripe_transfer_id") @db.VarChar(255)
+  processedAt           DateTime? @map("processed_at") @db.Timestamptz
+  failureReason         String?   @map("failure_reason") @db.Text
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  student               StudentProfile @relation(fields: [studentId], references: [id])
+  executions            Execution[]
+
+  @@index([studentId, status], map: "idx_payouts_student_status")
+  @@index([status, createdAt], map: "idx_payouts_status_created")
+  @@map("payouts")
+}
+
+// Disputes
+model Dispute {
+  id                    String    @id @default(uuid()) @db.Uuid
+  executionId           String?   @map("execution_id") @db.Uuid
+  studentId             String    @map("student_id") @db.Uuid
+  companyId             String    @map("company_id") @db.Uuid
+
+  filedBy               String    @map("filed_by") @db.VarChar(20) // student, company
+  reason                String    @db.Text
+  evidenceUrls          String[]  @map("evidence_urls")
+
+  status                String    @default("filed") @db.VarChar(30) // filed, under_review, needs_info, resolved_student, resolved_company, partial
+
+  assignedTo            String?   @map("assigned_to") @db.VarChar(255) // Figwork admin
+  resolution            String?   @db.Text
+  resolutionType        String?   @map("resolution_type") @db.VarChar(30)
+
+  payoutAdjustment      Int?      @map("payout_adjustment") // in cents
+  expAdjustment         Int?      @map("exp_adjustment")
+
+  filedAt               DateTime  @default(now()) @map("filed_at") @db.Timestamptz
+  resolvedAt            DateTime? @map("resolved_at") @db.Timestamptz
+
+  student               StudentProfile @relation("StudentDisputes", fields: [studentId], references: [id])
+  company               CompanyProfile @relation("CompanyDisputes", fields: [companyId], references: [id])
+
+  @@index([studentId, status], map: "idx_disputes_student_status")
+  @@index([companyId, status], map: "idx_disputes_company_status")
+  @@index([status, filedAt], map: "idx_disputes_status_filed")
+  @@map("disputes")
+}
+
+// Invoices (monthly billing for companies)
+model Invoice {
+  id                    String    @id @default(uuid()) @db.Uuid
+  companyId             String    @map("company_id") @db.Uuid
+
+  // Billing period
+  periodStart           DateTime  @map("period_start") @db.Timestamptz
+  periodEnd             DateTime  @map("period_end") @db.Timestamptz
+
+  // Amounts
+  subtotalInCents       Int       @map("subtotal_in_cents")
+  platformFeesInCents   Int       @map("platform_fees_in_cents")
+  taxInCents            Int       @default(0) @map("tax_in_cents")
+  totalInCents          Int       @map("total_in_cents")
+
+  // Line items (JSON array)
+  lineItems             Json      @map("line_items")
+
+  // Status
+  status                String    @default("draft") @db.VarChar(20)
+
+  // Stripe
+  stripeInvoiceId       String?   @map("stripe_invoice_id") @db.VarChar(255)
+  stripeInvoiceUrl      String?   @map("stripe_invoice_url") @db.Text
+
+  // PDF
+  pdfUrl                String?   @map("pdf_url") @db.Text
+
+  // Dates
+  issuedAt              DateTime? @map("issued_at") @db.Timestamptz
+  dueAt                 DateTime? @map("due_at") @db.Timestamptz
+  paidAt                DateTime? @map("paid_at") @db.Timestamptz
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  company               CompanyProfile @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, status], map: "idx_invoices_company")
+  @@map("invoices")
+}
+
+// Budget tracking
+model BudgetPeriod {
+  id                    String    @id @default(uuid()) @db.Uuid
+  companyId             String    @map("company_id") @db.Uuid
+
+  // Period
+  month                 Int
+  year                  Int
+
+  // Limits
+  budgetCapInCents      Int?      @map("budget_cap_in_cents")
+
+  // Tracking
+  totalSpentInCents     Int       @default(0) @map("total_spent_in_cents")
+  totalEscrowedInCents  Int       @default(0) @map("total_escrowed_in_cents")
+  tasksPosted           Int       @default(0) @map("tasks_posted")
+  tasksCompleted        Int       @default(0) @map("tasks_completed")
+
+  // Alerts
+  budgetAlertSent       Boolean   @default(false) @map("budget_alert_sent")
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company               CompanyProfile @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, month, year], map: "idx_budget_company_period")
+  @@map("budget_periods")
+}
+
+// Transaction log (audit trail)
+model PaymentTransaction {
+  id                    String    @id @default(uuid()) @db.Uuid
+  companyId             String?   @map("company_id") @db.Uuid
+  studentId             String?   @map("student_id") @db.Uuid
+
+  // Type
+  type                  String    @db.VarChar(30)
+
+  // Reference
+  workUnitId            String?   @map("work_unit_id") @db.Uuid
+  executionId           String?   @map("execution_id") @db.Uuid
+  invoiceId             String?   @map("invoice_id") @db.Uuid
+
+  // Amounts
+  amountInCents         Int       @map("amount_in_cents")
+  feeInCents            Int       @default(0) @map("fee_in_cents")
+  netAmountInCents      Int       @map("net_amount_in_cents")
+
+  // Direction
+  direction             String    @db.VarChar(10) // credit, debit
+
+  // Balance after
+  balanceAfterInCents   Int?      @map("balance_after_in_cents")
+
+  // Stripe
+  stripePaymentId       String?   @map("stripe_payment_id") @db.VarChar(255)
+  stripeTransferId      String?   @map("stripe_transfer_id") @db.VarChar(255)
+
+  // Status
+  status                String    @default("completed") @db.VarChar(20)
+
+  // Metadata
+  description           String?   @db.Text
+  metadata              Json?
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  company               CompanyProfile?  @relation("CompanyTransactions", fields: [companyId], references: [id])
+  student               StudentProfile?  @relation("StudentTransactions", fields: [studentId], references: [id])
+
+  @@index([companyId, createdAt], map: "idx_transactions_company")
+  @@index([studentId, createdAt], map: "idx_transactions_student")
+  @@map("payment_transactions")
+}
+
+// Notifications
+model Notification {
+  id                    String    @id @default(uuid()) @db.Uuid
+  userId                String    @map("user_id") @db.VarChar(255) // clerkId or studentId
+  userType              String    @map("user_type") @db.VarChar(20) // student, company, admin
+
+  type                  String    @db.VarChar(50)
+  title                 String    @db.VarChar(255)
+  body                  String    @db.Text
+  data                  Json?
+
+  channels              String[]
+  sentChannels          String[]  @default([]) @map("sent_channels")
+
+  readAt                DateTime? @map("read_at") @db.Timestamptz
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([userId, userType], map: "idx_notifications_user")
+  @@index([createdAt], map: "idx_notifications_created")
+  @@map("notifications")
+}
+
+// ============================================
+// LEGAL ONBOARDING CONFIGURATION
+// ============================================
+
+// Configurable onboarding steps (platform admin manages these)
+model OnboardingStep {
+  id                    String    @id @default(uuid()) @db.Uuid
+  
+  // Step identity
+  stepType              String    @map("step_type") @db.VarChar(30)
+  // Built-in: profile, phone, portfolio, agreement, kyc, tax, payout
+  // 'agreement' type links to a LegalAgreement via agreementId
+
+  label                 String    @db.VarChar(100)
+  description           String?   @db.Text
+  icon                  String?   @db.VarChar(30) // lucide icon name
+
+  // Behavior
+  enabled               Boolean   @default(true)
+  required              Boolean   @default(false)
+  orderIndex            Int       @map("order_index")
+
+  // Gate level: what action this step gates
+  // browse = can view marketplace, accept = can accept tasks, payout = can receive money
+  gateLevel             String    @default("accept") @map("gate_level") @db.VarChar(20)
+
+  // If stepType is 'agreement', link to a LegalAgreement
+  agreementId           String?   @map("agreement_id") @db.Uuid
+
+  // Type-specific configuration (JSON)
+  config                Json?     // e.g. { kycLevel: 'enhanced', taxFormType: 'auto' }
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  agreement             LegalAgreement? @relation(fields: [agreementId], references: [id])
+
+  @@index([enabled, orderIndex], map: "idx_onboarding_steps_order")
+  @@map("onboarding_steps")
+}
+
+// Custom legal agreements that workers must sign
+model LegalAgreement {
+  id                    String    @id @default(uuid()) @db.Uuid
+
+  title                 String    @db.VarChar(255)
+  slug                  String    @unique @db.VarChar(100)
+  content               String    @db.Text // Markdown/HTML body
+
+  // Versioning
+  version               Int       @default(1)
+  requiresResign        Boolean   @default(true) @map("requires_resign")
+
+  // Status
+  status                String    @default("draft") @db.VarChar(20) // draft, active, archived
+
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  onboardingSteps       OnboardingStep[]
+  signatures            AgreementSignature[]
+
+  @@map("legal_agreements")
+}
+
+// Record of a student signing an agreement
+model AgreementSignature {
+  id                    String    @id @default(uuid()) @db.Uuid
+  agreementId           String    @map("agreement_id") @db.Uuid
+  studentId             String    @map("student_id") @db.Uuid
+
+  agreementVersion      Int       @map("agreement_version")
+  signedName            String    @map("signed_name") @db.VarChar(255)
+
+  ipAddress             String?   @map("ip_address") @db.VarChar(45)
+  userAgent             String?   @map("user_agent") @db.Text
+
+  signedAt              DateTime  @default(now()) @map("signed_at") @db.Timestamptz
+
+  agreement             LegalAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  student               StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([agreementId, studentId], map: "idx_signature_agreement_student")
+  @@map("agreement_signatures")
+}
+
+// SMS Logs (for POW and notifications)
+model SMSLog {
+  id                    String    @id @default(uuid()) @db.Uuid
+  phone                 String    @db.VarChar(20)
+  message               String    @db.Text
+  type                  String    @db.VarChar(50) // pow_request, notification, verification
+
+  twilioMessageId       String?   @map("twilio_message_id") @db.VarChar(255)
+  status                String    @default("pending") @db.VarChar(20)
+  error                 String?   @db.Text
+
+  sentAt                DateTime  @default(now()) @map("sent_at") @db.Timestamptz
+
+  @@map("sms_logs")
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "cd ../.. && pnpm turbo run build --filter=@figwork/web",
+  "outputDirectory": "apps/web/.next",
+  "installCommand": "pnpm install",
+  "env": {
+    "NEXT_PUBLIC_API_URL": "@figwork_api_url",
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "@figwork_clerk_publishable_key",
+    "NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME": "@figwork_cloudinary_cloud_name"
+  }
+}

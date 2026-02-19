@@ -1,0 +1,182 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Primary - Soft lavender/purple (from logo top) */
+  --color-primary: #a78bfa;
+  --color-primary-light: #c4b5fd;
+  --color-primary-dark: #8b5cf6;
+
+  /* Secondary - Soft pink/rose (from logo middle) */
+  --color-secondary: #f9a8d4;
+  --color-secondary-light: #fbcfe8;
+
+  /* Accent - Warm peach/cream (from logo bottom) */
+  --color-accent: #fcd34d;
+  --color-accent-light: #fef3c7;
+  --color-accent-warm: #fdba74;
+
+  /* Gradient - Matches logo flow */
+  --gradient-fig: linear-gradient(135deg, #c4b5fd 0%, #f9a8d4 50%, #fef3c7 100%);
+  --gradient-fig-subtle: linear-gradient(135deg, rgba(196,181,253,0.1) 0%, rgba(249,168,212,0.1) 50%, rgba(254,243,199,0.1) 100%);
+
+  /* Backgrounds - Light, warm, airy */
+  --color-bg-primary: #fefefe;
+  --color-bg-secondary: #faf8fc;
+  --color-bg-warm: #fffbf5;
+
+  /* Text - Soft, not harsh black */
+  --color-text-primary: #1f1f2e;
+  --color-text-secondary: #6b6b80;
+  --color-text-muted: #a0a0b0;
+
+  /* Borders - Very subtle */
+  --color-border: #e8e4f0;
+  --color-border-light: #f3f0f8;
+
+  /* Status - Softer versions */
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-error: #f87171;
+
+  /* Shadows - Soft, colored */
+  --shadow-sm: 0 1px 3px rgba(167, 139, 250, 0.08);
+  --shadow-md: 0 4px 16px rgba(167, 139, 250, 0.12);
+  --shadow-lg: 0 12px 40px rgba(167, 139, 250, 0.16);
+  --shadow-glow: 0 0 24px rgba(167, 139, 250, 0.2);
+}
+
+@layer base {
+  html, body {
+    overscroll-behavior-y: none;
+  }
+
+  body {
+    @apply bg-background-secondary text-text-primary antialiased;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+
+  * {
+    @apply border-border;
+    outline: none !important;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white/80 backdrop-blur-sm rounded-lg border border-border-light;
+    box-shadow: var(--shadow-md);
+  }
+
+  .btn-primary {
+    @apply px-6 py-3 rounded-lg font-medium text-white transition-all duration-300;
+    background: var(--gradient-fig);
+  }
+
+  .btn-primary:hover {
+    box-shadow: var(--shadow-glow);
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 rounded-lg font-medium text-text-secondary bg-white/80 border border-border transition-all duration-300;
+  }
+
+  .btn-secondary:hover {
+    @apply border-primary-light text-text-primary;
+  }
+
+  .input {
+    @apply w-full px-4 py-3 rounded-md bg-white/80 border border-border text-text-primary placeholder:text-text-muted;
+    @apply focus:outline-none focus:border-primary-light focus:ring-2 focus:ring-primary-light/20;
+    @apply transition-all duration-200;
+  }
+
+  .transcript {
+    @apply font-mono text-sm text-text-secondary leading-relaxed;
+  }
+}
+
+@layer utilities {
+  .gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-fig);
+  }
+
+  .ambient-glow {
+    box-shadow: 0 0 32px rgba(167, 139, 250, 0.4), 0 0 64px rgba(249, 168, 212, 0.2);
+  }
+
+  /* Smooth word fade-in animation for streaming text */
+  .animate-fadeIn {
+    animation: fadeIn 0.4s ease-out forwards;
+    opacity: 0;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* SLOW word fade-in - gentle, readable pace */
+  .animate-fadeInSlow {
+    animation: fadeInSlow 0.6s ease-out forwards;
+    opacity: 0;
+  }
+
+  @keyframes fadeInSlow {
+    0% {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    50% {
+      opacity: 0.5;
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Smooth text reveal for streaming */
+  .animate-reveal {
+    animation: reveal 0.3s ease-out forwards;
+  }
+
+  @keyframes reveal {
+    from {
+      opacity: 0.3;
+      filter: blur(1px);
+    }
+    to {
+      opacity: 1;
+      filter: blur(0);
+    }
+  }
+
+  /* Custom scrollbar for message card */
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgba(167, 139, 250, 0.3);
+    border-radius: 3px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: rgba(167, 139, 250, 0.5);
+  }
+}
