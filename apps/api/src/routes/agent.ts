@@ -591,6 +591,22 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     return reply.send(updated);
   });
 
+  // DELETE /contracts/:id — delete a contract
+  fastify.delete<{ Params: { id: string } }>('/contracts/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    const authResult = await verifyClerkAuth(request, reply);
+    if (!authResult) return;
+
+    const { id } = request.params;
+    const existing = await db.legalAgreement.findUnique({ where: { id } });
+    if (!existing) return reply.status(404).send({ error: 'Contract not found' });
+    if (existing.status === 'active') return reply.status(400).send({ error: 'Cannot delete active contract. Archive it first.' });
+
+    // Delete signatures first (cascade might not work)
+    await db.agreementSignature.deleteMany({ where: { agreementId: id } });
+    await db.legalAgreement.delete({ where: { id } });
+    return reply.send({ success: true });
+  });
+
   // GET /contracts — list legal agreements
   fastify.get('/contracts', async (request: FastifyRequest, reply: FastifyReply) => {
     const authResult = await verifyClerkAuth(request, reply);

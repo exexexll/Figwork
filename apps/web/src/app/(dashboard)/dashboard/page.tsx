@@ -390,6 +390,17 @@ export default function DashboardPage() {
     } catch {}
   }
 
+  async function deleteContractDirect(id: string) {
+    try {
+      const t = await getToken(); if (!t) return;
+      await fetch(`${API_URL}/api/agent/contracts/${id}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${t}` },
+      });
+      setExpandedContract(null);
+      loadContracts();
+    } catch {}
+  }
+
   async function updateContractDirect(id: string, data: { content?: string; title?: string; status?: string }) {
     try {
       const t = await getToken(); if (!t) return;
@@ -913,11 +924,18 @@ export default function DashboardPage() {
                             </button>
                           )}
                         </div>
-                        <button
-                          onClick={() => setInput(`Review and improve this contract: "${expandedContract.title}". Check for legal completeness and suggest improvements.`)}
-                          className="w-full text-xs text-slate-500 border border-slate-200 rounded py-1.5 hover:bg-white transition-colors flex items-center justify-center gap-1">
-                          <Sparkles className="w-3 h-3" /> AI review this contract
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setInput(`Review and improve this contract: "${expandedContract.title}". Check for legal completeness and suggest improvements.`)}
+                            className="flex-1 text-xs text-slate-500 border border-slate-200 rounded py-1.5 hover:bg-white transition-colors flex items-center justify-center gap-1">
+                            <Sparkles className="w-3 h-3" /> AI review
+                          </button>
+                          <button
+                            onClick={() => { if (confirm(`Delete "${expandedContract.title}"?`)) deleteContractDirect(expandedContract.id); }}
+                            className="py-1.5 px-3 text-xs text-red-400 border border-red-200 rounded hover:bg-red-50 transition-colors">
+                            Delete
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       /* Contract list */

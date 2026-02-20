@@ -360,6 +360,7 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'get_contract', description: 'Get a contract with its content and signature status', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'update_contract', description: 'Update a contract — bumps version, optionally requires re-signing', parameters: { type: 'object', properties: { contractId: { type: 'string' }, title: { type: 'string' }, content: { type: 'string' }, requiresResign: { type: 'boolean' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'activate_contract', description: 'Set a contract to active so contractors must sign it during onboarding', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
+  { type: 'function' as const, function: { name: 'delete_contract', description: 'Delete a contract (draft or archived only)', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'set_onboarding', description: 'CALL THIS TOOL to set the contractor onboarding page for a work unit. Always call this — never just describe what you would create. Pass a blocks array with visual content blocks.', parameters: { type: 'object', properties: { workUnitId: { type: 'string' }, accentColor: { type: 'string', description: 'Hex color e.g. #a78bfa' }, blocks: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', enum: ['hero', 'text', 'checklist', 'cta', 'image', 'video', 'file', 'divider'] }, content: { type: 'object', description: 'hero:{heading,subheading} text:{heading,body} checklist:{heading,items:[]} cta:{heading,body,buttonText} image:{url,caption} video:{url,title} file:{url,filename,description} divider:{}' } }, required: ['type', 'content'] } } }, required: ['workUnitId', 'blocks'] } } },
   { type: 'function' as const, function: { name: 'get_onboarding', description: 'Get the current onboarding page config for a work unit', parameters: { type: 'object', properties: { workUnitId: { type: 'string' } }, required: ['workUnitId'] } } },
   { type: 'function' as const, function: { name: 'list_all_executions', description: 'List ALL active executions across all work units — monitoring dashboard', parameters: { type: 'object', properties: {} } } },
@@ -472,6 +473,7 @@ export async function executeTool(
       case 'get_contract': return await toolGetContract(args);
       case 'update_contract': return await toolUpdateContract(args);
       case 'activate_contract': return await toolActivateContract(args);
+      case 'delete_contract': return await toolDeleteContract(args);
       case 'set_onboarding': return await toolSetOnboarding(args, companyId);
       case 'get_onboarding': return await toolGetOnboarding(args, companyId);
       case 'list_all_executions': return await toolListAllExecutions(companyId);
@@ -872,11 +874,26 @@ async function toolPublishWorkUnit(args: any, companyId: string): Promise<string
 }
 
 async function toolDeleteWorkUnit(args: any, companyId: string): Promise<string> {
-  const wu = await db.workUnit.findFirst({ where: { id: args.workUnitId, companyId } });
+  const wu = await db.workUnit.findFirst({
+    where: { id: args.workUnitId, companyId },
+    include: { executions: { where: { status: { notIn: ['failed', 'cancelled', 'approved'] } } }, escrow: true },
+  });
   if (!wu) return 'Work unit not found.';
-  if (!['draft', 'cancelled'].includes(wu.status)) {
-    return `Cannot delete — status is "${wu.status}". Cancel it first.`;
+
+  // If active/in_progress with no active executions, auto-cancel first
+  if (['active', 'paused', 'in_progress'].includes(wu.status)) {
+    if (wu.executions.length > 0) {
+      return `Cannot delete "${wu.title}" — it has ${wu.executions.length} active execution(s). Cancel them first.`;
+    }
+    await db.workUnit.update({ where: { id: wu.id }, data: { status: 'cancelled' } });
   }
+
+  // Delete related records
+  try {
+    if (wu.escrow) await db.escrow.delete({ where: { id: wu.escrow.id } });
+    await db.milestoneTemplate.deleteMany({ where: { workUnitId: wu.id } });
+    await db.agentConversation.deleteMany({ where: { workUnitId: wu.id } });
+  } catch {}
 
   await db.workUnit.delete({ where: { id: wu.id } });
   return `Deleted "${wu.title}".`;
@@ -1429,6 +1446,14 @@ async function toolActivateContract(args: any): Promise<string> {
 
   await db.legalAgreement.update({ where: { id: args.contractId }, data: { status: 'active' } });
   return `Activated "${a.title}". Contractors will be required to sign this during onboarding before they can start working on tasks linked to this agreement.`;
+}
+
+async function toolDeleteContract(args: any): Promise<string> {
+  const a = await db.legalAgreement.findUnique({ where: { id: args.contractId } });
+  if (!a) return 'Contract not found.';
+  if (a.status === 'active') return `Cannot delete "${a.title}" — it's active. Archive it first.`;
+  await db.legalAgreement.delete({ where: { id: args.contractId } });
+  return `Deleted "${a.title}".`;
 }
 
 async function toolSetOnboarding(args: any, companyId: string): Promise<string> {
