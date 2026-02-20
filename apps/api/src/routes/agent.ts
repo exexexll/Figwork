@@ -60,7 +60,9 @@ You MUST call: set_onboarding(workUnitId, accentColor, blocks) where blocks is a
 [{type:"hero",content:{heading:"Welcome!",subheading:"..."}},{type:"text",content:{heading:"Instructions",body:"..."}},{type:"checklist",content:{heading:"Before You Start",items:["Item 1","Item 2"]}},{type:"cta",content:{heading:"Ready?",body:"...",buttonText:"Start Working"}}]
 
 video block: {url:"https://youtube.com/...",title:"Intro Video"}
-file block: {url:"https://drive.google.com/...",filename:"Guide.pdf",description:"Reference guide"}
+file block: {url:"https://...",filename:"Guide.pdf",description:"Reference guide"}
+
+When a user uploads a file in the chat and asks you to add it to the onboarding page, include it as a file block with the filename and a description. The user can also upload files directly from the panel's file block upload button.
 
 MODE 5: FINANCIAL ANALYST — activated for budget, cost, invoices, payouts.
 Estimate costs, show breakdowns, manage budgets, track escrow.
@@ -533,6 +535,40 @@ export default async function agentRoutes(fastify: FastifyInstance) {
       return reply.send({ text, filename, size: buffer.length });
     } catch (err: any) {
       return reply.status(500).send({ error: 'File processing failed', details: err?.message });
+    }
+  });
+
+  // POST /upload-onboarding-file — upload a file for onboarding page blocks
+  fastify.post('/upload-onboarding-file', async (request: FastifyRequest, reply: FastifyReply) => {
+    const authResult = await verifyClerkAuth(request, reply);
+    if (!authResult) return;
+
+    try {
+      const data = await request.file();
+      if (!data) return reply.status(400).send({ error: 'No file' });
+
+      const buffer = await data.toBuffer();
+      const filename = data.filename || 'file';
+      const mimetype = data.mimetype || '';
+
+      // For now, convert to base64 data URL (works for images and small files)
+      // In production, upload to Cloudinary/S3
+      const base64 = buffer.toString('base64');
+      const dataUrl = `data:${mimetype};base64,${base64}`;
+
+      // For files > 2MB, just return metadata (too big for data URL)
+      if (buffer.length > 2 * 1024 * 1024) {
+        return reply.send({
+          url: '', // Would be Cloudinary URL in production
+          filename,
+          size: buffer.length,
+          error: 'File too large for inline storage. In production, this would upload to cloud storage.',
+        });
+      }
+
+      return reply.send({ url: dataUrl, filename, size: buffer.length, mimetype });
+    } catch (err: any) {
+      return reply.status(500).send({ error: err?.message || 'Upload failed' });
     }
   });
 

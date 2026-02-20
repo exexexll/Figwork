@@ -1240,6 +1240,23 @@ function PanelBlockEditor({ block, onChange }: { block: { id: string; type: stri
           <div><label className={labelCls}>File URL</label><input type="url" value={block.content.url || ''} onChange={e => onChange(block.id, 'url', e.target.value)} className={inputCls} placeholder="https://drive.google.com/..." /></div>
           <div><label className={labelCls}>Filename</label><input type="text" value={block.content.filename || ''} onChange={e => onChange(block.id, 'filename', e.target.value)} className={inputCls} /></div>
           <div><label className={labelCls}>Description</label><input type="text" value={block.content.description || ''} onChange={e => onChange(block.id, 'description', e.target.value)} className={inputCls} /></div>
+          <OnboardingFileUpload blockId={block.id} onChange={onChange} />
+        </div>
+      );
+    case 'video':
+      return (
+        <div className="space-y-2">
+          <div><label className={labelCls}>Video URL</label><input type="url" value={block.content.url || ''} onChange={e => onChange(block.id, 'url', e.target.value)} className={inputCls} placeholder="https://youtube.com/..." /></div>
+          <div><label className={labelCls}>Title</label><input type="text" value={block.content.title || ''} onChange={e => onChange(block.id, 'title', e.target.value)} className={inputCls} /></div>
+        </div>
+      );
+    case 'image':
+      return (
+        <div className="space-y-2">
+          <div><label className={labelCls}>Image URL</label><input type="url" value={block.content.url || ''} onChange={e => onChange(block.id, 'url', e.target.value)} className={inputCls} placeholder="https://..." /></div>
+          <div><label className={labelCls}>Caption</label><input type="text" value={block.content.caption || ''} onChange={e => onChange(block.id, 'caption', e.target.value)} className={inputCls} /></div>
+          {block.content.url && <img src={block.content.url} alt="" className="w-full rounded max-h-24 object-cover" onError={e => (e.currentTarget.style.display = 'none')} />}
+          <OnboardingFileUpload blockId={block.id} onChange={onChange} isImage />
         </div>
       );
     case 'divider':
@@ -1329,4 +1346,43 @@ function PanelBlockPreview({ block, accentColor, companyName }: { block: { id: s
     default:
       return null;
   }
+}
+
+function OnboardingFileUpload({ blockId, onChange, isImage }: { blockId: string; onChange: (id: string, key: string, value: any) => void; isImage?: boolean }) {
+  const { getToken } = useAuth();
+  const [uploading, setUploading] = useState(false);
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API_URL}/api/agent/upload-onboarding-file`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) {
+          onChange(blockId, 'url', data.url);
+          if (!isImage) onChange(blockId, 'filename', data.filename || file.name);
+        }
+      }
+    } catch {}
+    setUploading(false);
+    e.target.value = '';
+  }
+
+  return (
+    <label className="inline-flex items-center gap-1 text-[10px] text-violet-500 hover:text-violet-700 cursor-pointer">
+      <Paperclip className="w-3 h-3" />
+      {uploading ? 'Uploading...' : isImage ? 'Upload image' : 'Upload file'}
+      <input type="file" className="hidden" accept={isImage ? 'image/*' : '*'} onChange={handleUpload} />
+    </label>
+  );
 }
