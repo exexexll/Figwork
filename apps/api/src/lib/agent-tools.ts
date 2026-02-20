@@ -359,8 +359,8 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'list_contracts', description: 'List all legal agreements', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'get_contract', description: 'Get a contract with its content and signature status', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'update_contract', description: 'Update a contract — bumps version, optionally requires re-signing', parameters: { type: 'object', properties: { contractId: { type: 'string' }, title: { type: 'string' }, content: { type: 'string' }, requiresResign: { type: 'boolean' } }, required: ['contractId'] } } },
-  { type: 'function' as const, function: { name: 'activate_contract', description: 'Set a contract to active so contractors must sign it during onboarding', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
-  { type: 'function' as const, function: { name: 'delete_contract', description: 'Delete a contract (draft or archived only)', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
+  { type: 'function' as const, function: { name: 'activate_contract', description: 'Change a draft contract status to active. This makes it required for contractors to sign. ONLY changes status, does NOT delete anything.', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
+  { type: 'function' as const, function: { name: 'delete_contract', description: 'PERMANENTLY DELETE a contract. Only use when the user explicitly asks to delete. Cannot delete active contracts.', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'set_onboarding', description: 'CALL THIS TOOL to set the contractor onboarding page for a work unit. Always call this — never just describe what you would create. Pass a blocks array with visual content blocks.', parameters: { type: 'object', properties: { workUnitId: { type: 'string' }, accentColor: { type: 'string', description: 'Hex color e.g. #a78bfa' }, blocks: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', enum: ['hero', 'text', 'checklist', 'cta', 'image', 'video', 'file', 'divider'] }, content: { type: 'object', description: 'hero:{heading,subheading} text:{heading,body} checklist:{heading,items:[]} cta:{heading,body,buttonText} image:{url,caption} video:{url,title} file:{url,filename,description} divider:{}' } }, required: ['type', 'content'] } } }, required: ['workUnitId', 'blocks'] } } },
   { type: 'function' as const, function: { name: 'get_onboarding', description: 'Get the current onboarding page config for a work unit', parameters: { type: 'object', properties: { workUnitId: { type: 'string' } }, required: ['workUnitId'] } } },
   { type: 'function' as const, function: { name: 'list_all_executions', description: 'List ALL active executions across all work units — monitoring dashboard', parameters: { type: 'object', properties: {} } } },
@@ -382,6 +382,9 @@ export async function executeTool(
   userId: string,
 ): Promise<string> {
   try {
+    // Log tool calls for debugging
+    console.log(`[Tool] ${toolName}(${JSON.stringify(args).slice(0, 200)})`);
+
     // Resolve any truncated IDs or names to full UUIDs
     if (args.workUnitId) {
       const orig = args.workUnitId;
