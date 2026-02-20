@@ -273,12 +273,14 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     const openai = getOpenAIClient();
     let fullContent = '';
     let toolCallsAccumulated: any[] = [];
-    const toolCallLog = new Set<string>(); // Dedup: prevent calling same tool with same args
+    const toolCallLog = new Set<string>();
+    let totalToolCalls = 0;
+    const MAX_TOTAL_TOOL_CALLS = 15; // Hard cap across all rounds
 
     try {
       // Agent loop — handles tool calls iteratively
       let loopMessages = [...openaiMessages];
-      let maxLoops = 5; // Tool call rounds — prevent runaway loops
+      let maxLoops = 4; // Tool call rounds — prevent runaway loops
 
       while (maxLoops-- > 0) {
         const stream = await openai.chat.completions.create({
@@ -345,10 +347,13 @@ export default async function agentRoutes(fastify: FastifyInstance) {
             toolArgs = JSON.parse(tc.function.arguments);
           } catch {}
 
-          // Dedup: skip if we already called this exact tool with these exact args
+          // Hard cap + dedup
+          totalToolCalls++;
           const callKey = `${toolName}:${JSON.stringify(toolArgs)}`;
           let result: string;
-          if (toolCallLog.has(callKey)) {
+          if (totalToolCalls > MAX_TOTAL_TOOL_CALLS) {
+            result = `STOP: Maximum tool calls reached (${MAX_TOTAL_TOOL_CALLS}). Summarize what you've done so far and ask the user before continuing.`;
+          } else if (toolCallLog.has(callKey)) {
             result = `Already executed. Do not repeat this call.`;
           } else {
             toolCallLog.add(callKey);

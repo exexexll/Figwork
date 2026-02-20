@@ -59,21 +59,25 @@ export default function DashboardLayout({
     <div className="min-h-screen bg-[#f8f7fc] flex flex-col relative">
       {/* Ambient color smudges */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-20 -right-20 w-[450px] h-[450px] rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(167,139,250,0.12) 0%, transparent 55%)' }} />
-        <div className="absolute bottom-10 -left-32 w-[350px] h-[350px] rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(244,114,182,0.08) 0%, transparent 55%)' }} />
-        <div className="absolute top-1/3 left-1/4 w-[250px] h-[250px] rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.06) 0%, transparent 55%)' }} />
-        <div className="absolute bottom-1/4 right-1/3 w-[300px] h-[300px] rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(251,191,36,0.05) 0%, transparent 55%)' }} />
+        <div className="absolute -top-10 -right-10 w-[500px] h-[500px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(167,139,250,0.18) 0%, transparent 50%)' }} />
+        <div className="absolute bottom-20 -left-20 w-[400px] h-[400px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(244,114,182,0.12) 0%, transparent 50%)' }} />
+        <div className="absolute top-[40%] left-[20%] w-[300px] h-[300px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.1) 0%, transparent 50%)' }} />
+        <div className="absolute bottom-[20%] right-[25%] w-[350px] h-[350px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(251,191,36,0.08) 0%, transparent 50%)' }} />
+        <div className="absolute top-[15%] right-[40%] w-[200px] h-[200px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(52,211,153,0.07) 0%, transparent 50%)' }} />
+        <div className="absolute bottom-[40%] left-[45%] w-[250px] h-[250px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(167,139,250,0.08) 0%, transparent 50%)' }} />
       </div>
 
       {/* Header */}
       <header className="h-12 border-b border-slate-200/50 bg-white/70 flex items-center justify-between px-5 flex-shrink-0 relative z-10">
         <Link href="/dashboard" className="flex items-center gap-2">
           <img src="/iconfigwork.png" alt="" className="h-6 w-6" />
-          <span className="text-sm font-medium bg-gradient-to-r from-violet-700 to-indigo-600 bg-clip-text text-transparent">figwork</span>
+          <span className="text-sm font-medium text-slate-800">figwork</span>
         </Link>
         <div className="flex items-center gap-3">
           <Link href="/dashboard/settings" className="text-slate-400 hover:text-slate-600">
