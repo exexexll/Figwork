@@ -1698,9 +1698,9 @@ async function toolPlanAnalyze(args: any): Promise<string> {
 async function toolPlanDecompose(args: any): Promise<string> {
   try {
     const raw = await gpt52(
-      `You are a work architect. Break the project into work units. Return JSON: {"workUnits":[{"title":"...","spec":"(2-3 paragraphs)","category":"...","requiredSkills":["..."],"deliverableFormat":["..."],"acceptanceCriteria":[{"criterion":"...","required":true}],"complexityScore":1-5,"minTier":"novice|pro|elite","deadlineHours":N,"revisionLimit":N,"assignmentMode":"auto|manual"}]}. Write detailed specs.`,
+      `You are a work architect. Break the project into work units (max 8). Return JSON: {"workUnits":[{"title":"...","spec":"(1-2 paragraphs, concise but complete)","category":"...","requiredSkills":["..."],"deliverableFormat":["..."],"acceptanceCriteria":[{"criterion":"...","required":true}],"complexityScore":1-5,"minTier":"novice|pro|elite","deadlineHours":N,"revisionLimit":2,"assignmentMode":"auto"}]}`,
       `Brief: ${args.brief}`,
-      8192
+      6144
     );
     const match = raw.match(/\{[\s\S]*\}/);
     return match?.[0] || raw;
@@ -1721,10 +1721,20 @@ async function toolPlanPrice(args: any): Promise<string> {
 
 async function toolPlanLegal(args: any): Promise<string> {
   try {
+    // Truncate work units to prevent timeout — just titles and categories
+    let wuSummary = args.workUnits;
+    try {
+      const parsed = JSON.parse(args.workUnits);
+      const units = parsed.workUnits || parsed.estimates || parsed;
+      if (Array.isArray(units) && units.length > 0) {
+        wuSummary = units.map((wu: any) => `${wu.title || wu.name} (${wu.category || 'general'})`).join(', ');
+      }
+    } catch { wuSummary = args.workUnits.slice(0, 2000); }
+
     const raw = await gpt52(
-      `You are a legal specialist. For each work unit, write contracts and onboarding content. Return JSON: {"contracts":[{"title":"...","content":"FULL enforceable contract text (500+ words) with scope, IP, confidentiality, payment, termination, dispute resolution"}],"onboarding":[{"taskTitle":"...","blocks":[{"type":"hero","content":{"heading":"...","subheading":"..."}},{"type":"text","content":{"heading":"...","body":"..."}},{"type":"checklist","content":{"heading":"...","items":["..."]}},{"type":"cta","content":{"heading":"...","body":"...","buttonText":"..."}}]}]}`,
-      `Project: ${args.projectName}\nWork units: ${args.workUnits}`,
-      8192
+      `You are a legal specialist. Write ONE master contractor agreement and ONE onboarding template that applies to all tasks. Return JSON: {"contract":{"title":"...","content":"Complete enforceable agreement (scope, IP, confidentiality, payment, termination, dispute resolution)"},"onboarding":{"blocks":[{"type":"hero","content":{"heading":"...","subheading":"..."}},{"type":"text","content":{"heading":"Instructions","body":"..."}},{"type":"checklist","content":{"heading":"Before You Start","items":["..."]}},{"type":"cta","content":{"heading":"Ready?","body":"...","buttonText":"Start Working"}}]}}`,
+      `Project: ${args.projectName}\nTasks: ${wuSummary}`,
+      4096
     );
     const match = raw.match(/\{[\s\S]*\}/);
     return match?.[0] || raw;
