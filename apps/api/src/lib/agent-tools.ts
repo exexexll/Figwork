@@ -5,6 +5,7 @@
 
 import { db } from '@figwork/db';
 import { PRICING_CONFIG, TIER_CONFIG } from '@figwork/shared';
+import { getOpenAIClient } from '@figwork/ai';
 
 // Helper: resolve a potentially truncated ID to full UUID
 async function resolveId(table: string, shortId: string, companyId?: string): Promise<string | null> {
@@ -367,6 +368,7 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'get_pow_logs', description: 'Get proof-of-work check-in logs for an execution', parameters: { type: 'object', properties: { executionId: { type: 'string' } }, required: ['executionId'] } } },
   { type: 'function' as const, function: { name: 'request_pow_check', description: 'Request an immediate proof-of-work check-in from a contractor', parameters: { type: 'object', properties: { executionId: { type: 'string' } }, required: ['executionId'] } } },
   { type: 'function' as const, function: { name: 'get_monitoring_summary', description: 'Get a summary of all active work — deadlines at risk, inactive contractors, overdue tasks', parameters: { type: 'object', properties: {} } } },
+  { type: 'function' as const, function: { name: 'plan_project', description: 'Run a multi-agent planning chain to design a complete project execution plan. Takes a high-level goal and produces work units with detailed specs, pricing, contracts, and onboarding. Use when the user wants to plan a project, campaign, or operation requiring multiple contractors.', parameters: { type: 'object', properties: { goal: { type: 'string', description: 'The project goal or description' }, budget: { type: 'string', description: 'Budget constraints if any' }, timeline: { type: 'string', description: 'Timeline constraints if any' }, context: { type: 'string', description: 'Any additional context from the conversation' } }, required: ['goal'] } } },
   { type: 'function' as const, function: { name: 'web_search', description: 'Search the web for information — use when the user asks about market rates, competitor analysis, industry standards, legal requirements, or anything you need current data for', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Search query' } }, required: ['query'] } } },
   { type: 'function' as const, function: { name: 'get_company_profile', description: 'View company profile details', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'update_company_profile', description: 'Edit company name, website, address', parameters: { type: 'object', properties: { companyName: { type: 'string' }, legalName: { type: 'string' }, website: { type: 'string' } } } } },
@@ -483,6 +485,7 @@ export async function executeTool(
       case 'get_pow_logs': return await toolGetPOWLogs(args, companyId);
       case 'request_pow_check': return await toolRequestPOWCheck(args, companyId);
       case 'get_monitoring_summary': return await toolGetMonitoringSummary(companyId);
+      case 'plan_project': return await toolPlanProject(args);
       case 'web_search': return await toolWebSearch(args);
       case 'get_company_profile': return await toolGetCompanyProfile(companyId);
       case 'update_company_profile': return await toolUpdateCompanyProfile(args, companyId);
@@ -1652,6 +1655,212 @@ async function toolGetMonitoringSummary(companyId: string): Promise<string> {
   }
 
   return r;
+}
+
+// ============================================================
+// MULTI-AGENT PROJECT PLANNER
+// Each stage is a separate GPT-5.2 agent with its own role
+// ============================================================
+
+async function agentCall(role: string, systemPrompt: string, userPrompt: string, maxTokens: number = 8192): Promise<string> {
+  const openai = getOpenAIClient();
+  const res = await openai.chat.completions.create({
+    model: 'gpt-5.2',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    max_tokens: maxTokens,
+    temperature: 0.3,
+  });
+  return res.choices[0]?.message?.content || '';
+}
+
+async function toolPlanProject(args: any): Promise<string> {
+  const { goal, budget, timeline, context } = args;
+  if (!goal) return 'Project goal is required.';
+
+  try {
+    // ── AGENT 1: Project Analyst ──
+    const analystOutput = await agentCall(
+      'Project Analyst',
+      `You are a senior project analyst. Given a project goal, produce a structured project brief in JSON format:
+{
+  "projectName": "...",
+  "goal": "clear restatement of the goal",
+  "constraints": ["budget: ...", "timeline: ...", ...],
+  "qualityBar": "what good looks like",
+  "targetAudience": "who benefits",
+  "riskFactors": ["...", "..."],
+  "estimatedTeamSize": number,
+  "projectType": "campaign|hiring|content|research|development|operations"
+}
+Return ONLY valid JSON.`,
+      `Goal: ${goal}\nBudget: ${budget || 'not specified'}\nTimeline: ${timeline || 'not specified'}\nContext: ${context || 'none'}`,
+      4096
+    );
+
+    let brief: any;
+    try {
+      const match = analystOutput.match(/\{[\s\S]*\}/);
+      brief = JSON.parse(match?.[0] || analystOutput);
+    } catch { brief = { projectName: goal.slice(0, 50), goal, constraints: [], riskFactors: [], estimatedTeamSize: 3, projectType: 'operations' }; }
+
+    // ── AGENT 2: Work Architect ──
+    const architectOutput = await agentCall(
+      'Work Architect',
+      `You are a work decomposition architect. Given a project brief, break it into individual work units. For EACH work unit, write a COMPREHENSIVE multi-paragraph spec — not a one-liner. Return JSON:
+{
+  "workUnits": [
+    {
+      "title": "...",
+      "spec": "... (at least 3 paragraphs: context, requirements, deliverables, quality standards, what to avoid)",
+      "category": "writing|design|research|data-entry|development|marketing|operations",
+      "requiredSkills": ["..."],
+      "deliverableFormat": ["PDF", "Google Doc", etc.],
+      "acceptanceCriteria": [{"criterion": "...", "required": true}],
+      "complexityScore": 1-5,
+      "minTier": "novice|pro|elite",
+      "deadlineHours": number,
+      "revisionLimit": number,
+      "assignmentMode": "auto|manual",
+      "dependsOn": [] // indices of tasks that must complete first
+    }
+  ]
+}
+Write specs that are clear enough for a contractor to start without asking questions. Return ONLY valid JSON.`,
+      `Project brief: ${JSON.stringify(brief)}`,
+      16384
+    );
+
+    let workUnits: any[];
+    try {
+      const match = architectOutput.match(/\{[\s\S]*\}/);
+      const parsed = JSON.parse(match?.[0] || architectOutput);
+      workUnits = parsed.workUnits || [];
+    } catch { workUnits = []; }
+
+    if (workUnits.length === 0) return 'Failed to decompose the project into work units. Try providing more detail about what you need.';
+
+    // ── AGENT 3: Cost Estimator ──
+    const estimatorOutput = await agentCall(
+      'Cost Estimator',
+      `You are a freelance pricing expert. For each work unit, estimate a fair market price in cents. Consider complexity, required skill level, deadline urgency, and current market rates. Return JSON:
+{
+  "estimates": [
+    { "title": "...", "priceInCents": number, "reasoning": "brief explanation", "estimatedHours": number }
+  ],
+  "totalSubtotal": number,
+  "platformFees": number,
+  "totalCost": number
+}
+Platform fee is 15% on top of subtotal. Return ONLY valid JSON.`,
+      `Work units to price:\n${workUnits.map((wu: any, i: number) => `${i + 1}. ${wu.title} — complexity ${wu.complexityScore}/5, tier: ${wu.minTier}, deadline: ${wu.deadlineHours}h\n   Spec: ${wu.spec?.slice(0, 200)}`).join('\n')}`,
+      8192
+    );
+
+    let estimates: any;
+    try {
+      const match = estimatorOutput.match(/\{[\s\S]*\}/);
+      estimates = JSON.parse(match?.[0] || estimatorOutput);
+    } catch { estimates = { estimates: workUnits.map((wu: any) => ({ title: wu.title, priceInCents: 3000, reasoning: 'default', estimatedHours: 4 })) }; }
+
+    // Merge prices into work units
+    workUnits.forEach((wu: any, i: number) => {
+      const est = estimates.estimates?.[i];
+      if (est) wu.priceInCents = est.priceInCents;
+    });
+
+    // ── AGENT 4: Legal & Onboarding Planner ──
+    const legalOutput = await agentCall(
+      'Legal & Onboarding Planner',
+      `You are a legal and contractor onboarding specialist. For each work unit, determine what contracts are needed AND write the full onboarding page content. Return JSON:
+{
+  "contracts": [
+    {
+      "title": "...",
+      "appliesTo": [0, 1, 2],
+      "content": "FULL contract text — include scope, deliverables, IP assignment, confidentiality, payment terms, revision policy, termination, dispute resolution. At least 500 words."
+    }
+  ],
+  "onboardingPerTask": [
+    {
+      "taskIndex": 0,
+      "blocks": [
+        {"type": "hero", "content": {"heading": "...", "subheading": "..."}},
+        {"type": "text", "content": {"heading": "Instructions", "body": "detailed step-by-step..."}},
+        {"type": "checklist", "content": {"heading": "Before You Start", "items": ["...", "..."]}},
+        {"type": "cta", "content": {"heading": "Ready?", "body": "...", "buttonText": "Start Working"}}
+      ]
+    }
+  ]
+}
+Write real, enforceable contract text. Write welcoming, clear onboarding content. Return ONLY valid JSON.`,
+      `Project: ${brief.projectName}\nWork units:\n${workUnits.map((wu: any, i: number) => `${i}. ${wu.title} — ${wu.spec?.slice(0, 150)}`).join('\n')}`,
+      16384
+    );
+
+    let legal: any;
+    try {
+      const match = legalOutput.match(/\{[\s\S]*\}/);
+      legal = JSON.parse(match?.[0] || legalOutput);
+    } catch { legal = { contracts: [], onboardingPerTask: [] }; }
+
+    // ── AGENT 5: Plan Compiler ──
+    const totalSubtotal = workUnits.reduce((s: number, wu: any) => s + (wu.priceInCents || 0), 0);
+    const totalFees = Math.round(totalSubtotal * 0.15);
+    const totalCost = totalSubtotal + totalFees;
+
+    const plan = {
+      projectName: brief.projectName,
+      summary: brief.goal,
+      projectType: brief.projectType,
+      riskFactors: brief.riskFactors,
+      workUnits: workUnits.map((wu: any, i: number) => ({
+        ...wu,
+        estimatedHours: estimates.estimates?.[i]?.estimatedHours || 4,
+        pricingReasoning: estimates.estimates?.[i]?.reasoning || '',
+      })),
+      contracts: legal.contracts || [],
+      onboarding: legal.onboardingPerTask || [],
+      budget: {
+        subtotalCents: totalSubtotal,
+        feesCents: totalFees,
+        totalCents: totalCost,
+        formatted: `$${(totalCost / 100).toFixed(2)}`,
+      },
+      taskCount: workUnits.length,
+      contractCount: (legal.contracts || []).length,
+    };
+
+    // Format the plan as readable text for the agent to present
+    let output = `PROJECT PLAN: ${plan.projectName}\n`;
+    output += `${plan.taskCount} tasks, ${plan.contractCount} contracts, total budget: ${plan.budget.formatted}\n\n`;
+
+    output += `WORK UNITS:\n`;
+    plan.workUnits.forEach((wu: any, i: number) => {
+      output += `\n${i + 1}. ${wu.title} — $${((wu.priceInCents || 0) / 100).toFixed(0)}, ${wu.deadlineHours}h, ${wu.minTier} tier\n`;
+      output += `   Spec: ${wu.spec?.slice(0, 200)}...\n`;
+      output += `   Skills: ${(wu.requiredSkills || []).join(', ')}\n`;
+    });
+
+    if (plan.contracts.length > 0) {
+      output += `\nCONTRACTS:\n`;
+      plan.contracts.forEach((c: any, i: number) => {
+        output += `${i + 1}. ${c.title} (applies to tasks ${(c.appliesTo || []).map((t: number) => t + 1).join(', ')})\n`;
+      });
+    }
+
+    output += `\nBUDGET: $${(plan.budget.subtotalCents / 100).toFixed(0)} subtotal + $${(plan.budget.feesCents / 100).toFixed(0)} fees = ${plan.budget.formatted} total`;
+    output += `\n\nThis plan is ready for review. Ask the user if they want to proceed with creating all work units, contracts, and onboarding pages.`;
+
+    // Store the full plan in a global so the agent can execute it later
+    (global as any).__lastProjectPlan = plan;
+
+    return output;
+  } catch (err: any) {
+    return `Planning failed: ${err.message?.slice(0, 200) || 'Unknown error'}`;
+  }
 }
 
 async function toolWebSearch(args: any): Promise<string> {

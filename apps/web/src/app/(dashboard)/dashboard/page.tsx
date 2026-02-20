@@ -626,11 +626,11 @@ export default function DashboardPage() {
             <div className="h-full flex items-center justify-center">
               <div className="max-w-md space-y-4">
                 <p className="text-slate-400 text-sm text-center">What do you need done?</p>
-                {['Create a task for content writing, $30, 24h deadline',
+                {['Plan a project — describe what you need and I\'ll design the full execution plan',
+                  'Create a task for content writing, $30, 24h deadline',
                   'Show my active tasks',
                   'How much have I spent this month?',
                   'Set up a screening interview',
-                  'Review pending submissions',
                 ].map((s, i) => (
                   <button key={i} onClick={() => setInput(s)} className="block w-full text-left px-3 py-2 text-sm text-slate-500 hover:text-slate-800 hover:bg-white rounded-lg transition-colors">
                     {s}
