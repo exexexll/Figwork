@@ -87,7 +87,7 @@ async function generateSummary(job: Job<PostProcessJobData>): Promise<void> {
       ],
       response_format: { type: 'json_object' },
       temperature: 0.3,
-      max_tokens: 2000,
+      max_completion_tokens: 2000,
     });
 
     console.log(`Summary LLM: ${Date.now() - startTime}ms`);

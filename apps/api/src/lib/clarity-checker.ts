@@ -408,7 +408,7 @@ ${issues}
 Provide 2-3 specific, actionable suggestions to improve this specification. Focus on the identified issues.`,
       },
     ],
-    max_tokens: 300,
+    max_completion_tokens: 300,
     temperature: 0.7,
   });
   

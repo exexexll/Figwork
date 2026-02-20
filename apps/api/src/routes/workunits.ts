@@ -117,7 +117,7 @@ Return JSON: {
           messages: [{ role: 'user', content: clarityPrompt }],
           response_format: { type: 'json_object' },
           temperature: 0.3,
-          max_tokens: 300,
+          max_completion_tokens: 300,
         });
 
         const analysis = JSON.parse(response.choices[0].message.content || '{}');
@@ -295,7 +295,7 @@ Return JSON: {
               content: `Rate clarity 1-5: "${updates.spec}". Return JSON: {"score": number, "issues": []}`
             }],
             response_format: { type: 'json_object' },
-            max_tokens: 150,
+            max_completion_tokens: 150,
           });
           const analysis = JSON.parse(response.choices[0].message.content || '{}');
           clarityScore = analysis.score || clarityScore;

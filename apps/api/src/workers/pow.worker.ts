@@ -160,7 +160,7 @@ async function analyzePOW(data: POWAnalyzeJobData) {
             ],
           },
         ],
-        max_tokens: 300,
+        max_completion_tokens: 300,
         response_format: { type: 'json_object' },
       });
 
@@ -206,7 +206,7 @@ async function analyzePOW(data: POWAnalyzeJobData) {
               ],
             },
           ],
-          max_tokens: 200,
+          max_completion_tokens: 200,
           response_format: { type: 'json_object' },
         });
 

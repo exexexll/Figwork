@@ -1290,7 +1290,7 @@ ${context}`,
             content: question,
           },
         ],
-        max_tokens: 400,
+        max_completion_tokens: 400,
         temperature: 0.7,
       });
 

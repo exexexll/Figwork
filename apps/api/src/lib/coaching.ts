@@ -346,7 +346,7 @@ Include 2-3 of these tips naturally in your message:
 ${allTips.slice(0, 5).join('\n')}`,
       },
     ],
-    max_tokens: 200,
+    max_completion_tokens: 200,
     temperature: 0.7,
   });
 

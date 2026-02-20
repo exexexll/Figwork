@@ -1670,7 +1670,7 @@ async function agentCall(role: string, systemPrompt: string, userPrompt: string,
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    max_tokens: maxTokens,
+    max_completion_tokens: maxTokens,
     temperature: 0.3,
   });
   return res.choices[0]?.message?.content || '';

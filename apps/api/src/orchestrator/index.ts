@@ -148,7 +148,7 @@ export async function processOrchestrator(socket: any, sessionToken: string): Pr
       ],
       response_format: { type: 'json_object' },
       temperature: OPENAI_CONFIG.TEMPERATURE_CONTROLLER,
-      max_tokens: OPENAI_CONFIG.MAX_TOKENS_CONTROLLER,
+      max_completion_tokens: OPENAI_CONFIG.MAX_TOKENS_CONTROLLER,
     });
 
     const responseText = controllerResponse.choices[0]?.message?.content || '{}';
@@ -381,7 +381,7 @@ async function streamInterviewerResponse(
         { role: 'user', content: prompt },
       ],
       stream: true,
-      max_tokens: OPENAI_CONFIG.MAX_TOKENS_INTERVIEWER,
+      max_completion_tokens: OPENAI_CONFIG.MAX_TOKENS_INTERVIEWER,
       temperature: OPENAI_CONFIG.TEMPERATURE_INTERVIEWER,
     });
 
@@ -520,7 +520,7 @@ IMPORTANT: You have access to documents the visitor shared. Use this information
       model: OPENAI_CONFIG.MODEL_INTERVIEWER,
       messages,
       stream: true,
-      max_tokens: 150, // Shorter for faster responses
+      max_completion_tokens: 150, // Shorter for faster responses
       temperature: 0.7, // Still natural but more predictable
     });
 

@@ -354,7 +354,7 @@ async function analyzePOW(
           ],
         },
       ],
-      max_tokens: 200,
+      max_completion_tokens: 200,
       response_format: { type: 'json_object' },
     });
 
@@ -388,7 +388,7 @@ async function analyzePOW(
             ],
           },
         ],
-        max_tokens: 150,
+        max_completion_tokens: 150,
         response_format: { type: 'json_object' },
       });
 

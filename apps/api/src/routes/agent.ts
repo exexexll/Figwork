@@ -293,7 +293,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
           messages: loopMessages,
           tools: TOOL_DEFINITIONS,
           stream: true,
-          max_tokens: 16384,
+          max_completion_tokens: 16384,
         });
 
         let currentContent = '';
@@ -437,7 +437,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
             ...loopMessages.slice(-6),
             { role: 'user', content: suggestionPrompt },
           ],
-          max_tokens: 150,
+          max_completion_tokens: 150,
           temperature: 0.3,
         });
         const raw = suggestionRes.choices[0]?.message?.content || '[]';
