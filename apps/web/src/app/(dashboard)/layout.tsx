@@ -57,18 +57,16 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-[#f8f7fc] flex flex-col relative">
-      {/* Ambient background shapes */}
+      {/* Ambient background */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-[600px] h-[600px] rounded-full opacity-30"
-          style={{ background: 'radial-gradient(circle, rgba(196,181,253,0.3) 0%, transparent 70%)' }} />
-        <div className="absolute top-1/2 -left-60 w-[500px] h-[500px] rounded-full opacity-20"
-          style={{ background: 'radial-gradient(circle, rgba(249,168,212,0.25) 0%, transparent 70%)' }} />
-        <div className="absolute -bottom-20 right-1/3 w-[400px] h-[400px] rounded-full opacity-15"
-          style={{ background: 'radial-gradient(circle, rgba(254,243,199,0.3) 0%, transparent 70%)' }} />
+        <div className="absolute -top-32 -right-32 w-[500px] h-[500px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(196,181,253,0.15) 0%, transparent 60%)' }} />
+        <div className="absolute bottom-0 -left-40 w-[400px] h-[400px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(249,168,212,0.1) 0%, transparent 60%)' }} />
       </div>
 
       {/* Header */}
-      <header className="h-12 border-b border-white/60 bg-white/50 backdrop-blur-sm flex items-center justify-between px-5 flex-shrink-0 relative z-10">
+      <header className="h-12 border-b border-slate-200/50 bg-white/70 flex items-center justify-between px-5 flex-shrink-0 relative z-10">
         <Link href="/dashboard" className="flex items-center gap-2">
           <img src="/iconfigwork.png" alt="" className="h-6 w-6" />
           <span className="text-sm font-medium text-slate-800">figwork</span>

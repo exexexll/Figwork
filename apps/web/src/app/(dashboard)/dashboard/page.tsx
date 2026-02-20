@@ -431,7 +431,7 @@ export default function DashboardPage() {
                   'Set up a screening interview',
                   'Review pending submissions',
                 ].map((s, i) => (
-                  <button key={i} onClick={() => setInput(s)} className="block w-full text-left px-3 py-2 text-sm text-slate-500 hover:text-slate-800 hover:bg-white/60 rounded-lg transition-colors border border-transparent hover:border-slate-200/50">
+                  <button key={i} onClick={() => setInput(s)} className="block w-full text-left px-3 py-2 text-sm text-slate-500 hover:text-slate-800 hover:bg-white rounded-lg transition-colors">
                     {s}
                   </button>
                 ))}
@@ -442,8 +442,8 @@ export default function DashboardPage() {
               {messages.map(msg => {
                 if (msg.role === 'user') return (
                   <div key={msg.id} className="flex justify-end">
-                    <div className="bg-white/80 backdrop-blur-sm border border-slate-200/40 rounded-xl rounded-br-sm px-3.5 py-2.5 max-w-[70%]">
-                      <p className="text-sm text-slate-800 whitespace-pre-wrap">{msg.content}</p>
+                    <div className="bg-white rounded-xl rounded-br-sm px-3.5 py-2.5 max-w-[70%] shadow-sm">
+                      <p className="text-sm text-slate-900 whitespace-pre-wrap">{msg.content}</p>
                     </div>
                   </div>
                 );
@@ -452,7 +452,7 @@ export default function DashboardPage() {
                 );
                 return (
                   <div key={msg.id} className="pl-0.5">
-                    <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
+                    <p className="text-sm text-slate-900 whitespace-pre-wrap leading-relaxed">
                       {msg.content}
                       {streaming && messages[messages.length - 1]?.id === msg.id && <span className="inline-block w-1 h-3.5 bg-slate-300 ml-0.5 animate-pulse" />}
                     </p>
@@ -465,7 +465,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Input */}
-        <div className="px-6 py-3 border-t border-slate-200/30 bg-white/30 backdrop-blur-sm flex-shrink-0">
+        <div className="px-6 py-3 border-t border-slate-200/40 flex-shrink-0">
           {/* Attached files preview */}
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-2">
@@ -524,7 +524,7 @@ export default function DashboardPage() {
 
       {/* ── Panel (right) ── */}
       {panelOpen && (
-        <div style={{ width: panelWidth }} className="border-l border-slate-200/30 bg-white/40 backdrop-blur-sm flex flex-col flex-shrink-0 overflow-hidden">
+        <div style={{ width: panelWidth }} className="border-l border-slate-200/40 bg-white/60 flex flex-col flex-shrink-0 overflow-hidden">
           <div className="h-9 flex items-center justify-between px-3 border-b border-slate-50 flex-shrink-0">
             <span className="text-[11px] text-slate-400 truncate">{selectedWU ? selectedWU.title : 'Work units'}</span>
             <button onClick={() => setPanelOpen(false)} className="text-slate-300 hover:text-slate-500"><X className="w-3 h-3" /></button>
