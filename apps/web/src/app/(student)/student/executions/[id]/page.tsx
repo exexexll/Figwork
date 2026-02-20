@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import Link from 'next/link';
 import {
@@ -35,10 +35,14 @@ import {
 } from '@/lib/marketplace-api';
 import { track, EVENTS } from '@/lib/analytics';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
 export default function ExecutionDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const { getToken } = useAuth();
   const [execution, setExecution] = useState<Execution | null>(null);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [revisions, setRevisions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -75,6 +79,26 @@ export default function ExecutionDetailPage() {
         getExecutionRevisions(executionId, token).catch(() => []),
       ]);
       setExecution(execData);
+
+      // Check if onboarding is needed (assigned status, hasn't been onboarded yet)
+      if (execData.status === 'assigned' && !onboardingChecked) {
+        try {
+          const obRes = await fetch(`${API_URL}/api/agent/onboarding/${execData.workUnitId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (obRes.ok) {
+            const obData = await obRes.json();
+            const hasOnboarding = obData.blocks?.length > 0 || obData.welcome || obData.instructions;
+            // Check localStorage if user already completed onboarding for this execution
+            const onboardedKey = `onboarded_${executionId}`;
+            if (hasOnboarding && !localStorage.getItem(onboardedKey)) {
+              router.replace(`/student/executions/${executionId}/onboard`);
+              return;
+            }
+          }
+        } catch {}
+        setOnboardingChecked(true);
+      }
       setRevisions(revData);
     } catch (err) {
       console.error('Failed to load execution:', err);

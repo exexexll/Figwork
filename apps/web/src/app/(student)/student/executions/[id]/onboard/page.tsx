@@ -268,7 +268,10 @@ export default function ExecutionOnboardPage() {
             </p>
           )}
           <button
-            onClick={() => router.push(`/student/executions/${executionId}`)}
+            onClick={() => {
+              localStorage.setItem(`onboarded_${executionId}`, 'true');
+              router.push(`/student/executions/${executionId}`);
+            }}
             disabled={!canProceed}
             className="w-full py-3 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
@@ -276,7 +279,10 @@ export default function ExecutionOnboardPage() {
           </button>
           {contracts.length === 0 && (
             <button
-              onClick={() => router.push(`/student/executions/${executionId}`)}
+              onClick={() => {
+                localStorage.setItem(`onboarded_${executionId}`, 'true');
+                router.push(`/student/executions/${executionId}`);
+              }}
               className="w-full mt-2 py-2 text-slate-400 text-xs hover:text-slate-700"
             >
               skip onboarding
