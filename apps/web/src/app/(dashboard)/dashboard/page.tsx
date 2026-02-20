@@ -49,6 +49,7 @@ export default function DashboardPage() {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [onboardWelcome, setOnboardWelcome] = useState('');
   const [onboardInstructions, setOnboardInstructions] = useState('');
+  const [contracts, setContracts] = useState<any[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -112,6 +113,7 @@ export default function DashboardPage() {
         if (d.infoCollectionTemplateId) loadInterview(d.infoCollectionTemplateId);
         else setInterviewDetail(null);
         loadOnboarding(d.id);
+        loadContracts();
       }
     } catch {}
   }
@@ -237,6 +239,17 @@ export default function DashboardPage() {
       setOnboardWelcome('');
       setOnboardInstructions('');
     }
+  }
+
+  async function loadContracts() {
+    try {
+      const t = await getToken(); if (!t) return;
+      const res = await fetch(`${API_URL}/api/agent/contracts`, { headers: { Authorization: `Bearer ${t}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setContracts(data.contracts || []);
+      }
+    } catch {}
   }
 
   // ── Chat ──
@@ -651,69 +664,50 @@ export default function DashboardPage() {
                 {/* Legal */}
                 {panelTab === 'legal' && (
                   <div className="space-y-4">
-                    {/* MSA Status */}
+                    {/* Active contracts */}
                     <div>
-                      <span className="text-slate-400 block mb-1">Master Service Agreement</span>
-                      <p className="text-slate-600">Covers all work through Figwork. IP transfers on payment. Independent contractor relationship. 72h dispute SLA.</p>
-                      <button
-                        onClick={() => setInput('Draft a master service agreement for this work unit')}
-                        className="text-slate-500 hover:text-slate-900 mt-1"
-                      >
-                        generate MSA →
-                      </button>
+                      <span className="text-slate-400 block mb-1">Contracts</span>
+                      <p className="text-slate-500 text-[10px] mb-2">Contractors must sign active contracts before starting work.</p>
+                      {contracts.length > 0 ? contracts.map((c: any) => (
+                        <div key={c.id} className="py-1.5 border-b border-slate-50 last:border-0">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="text-slate-700">{c.title}</p>
+                              <p className="text-slate-400">v{c.version} · {c.status} · {c._count?.signatures || 0} signed</p>
+                            </div>
+                          </div>
+                        </div>
+                      )) : <p className="text-slate-400">No contracts yet</p>}
                     </div>
 
-                    {/* SOW */}
-                    <div className="pt-2 border-t border-slate-50">
-                      <span className="text-slate-400 block mb-1">Statement of Work</span>
-                      <p className="text-slate-600">Task-specific contract with scope, deliverables, timeline, and payment terms.</p>
-                      <button
-                        onClick={() => setInput(`Draft a statement of work for "${selectedWU?.title}" — $${((selectedWU?.priceInCents || 0) / 100).toFixed(0)}, ${selectedWU?.deadlineHours}h deadline`)}
-                        className="text-slate-500 hover:text-slate-900 mt-1"
-                      >
-                        generate SOW →
+                    {/* Quick create */}
+                    <div className="pt-2 border-t border-slate-50 space-y-1.5">
+                      <button onClick={() => setInput(`Create a contractor agreement for "${selectedWU?.title}" that covers scope of work, deliverables, IP assignment, confidentiality, payment terms, and termination. Attach it to this work unit.`)}
+                        className="block text-slate-500 hover:text-slate-900">
+                        create task-specific contract →
                       </button>
-                    </div>
-
-                    {/* NDA */}
-                    <div className="pt-2 border-t border-slate-50">
-                      <span className="text-slate-400 block mb-1">Non-Disclosure Agreement</span>
-                      <p className="text-slate-600">Protect confidential information shared with contractors.</p>
-                      <button
-                        onClick={() => setInput('Draft a non-disclosure agreement for contractors working on our tasks')}
-                        className="text-slate-500 hover:text-slate-900 mt-1"
-                      >
-                        generate NDA →
+                      <button onClick={() => setInput('Create a general NDA for all contractors')}
+                        className="block text-slate-500 hover:text-slate-900">
+                        create NDA →
+                      </button>
+                      <button onClick={() => setInput(`Draft a statement of work for "${selectedWU?.title}" — $${((selectedWU?.priceInCents || 0) / 100).toFixed(0)}, ${selectedWU?.deadlineHours}h`)}
+                        className="block text-slate-500 hover:text-slate-900">
+                        draft SOW →
+                      </button>
+                      <button onClick={() => setInput('List all contracts and their signature status')}
+                        className="block text-slate-500 hover:text-slate-900">
+                        view all contracts →
                       </button>
                     </div>
 
                     {/* Compliance */}
                     <div className="pt-2 border-t border-slate-50">
                       <span className="text-slate-400 block mb-1">Compliance</span>
-                      <div className="space-y-1">
-                        <p className="text-slate-600">W-9/W-8BEN — collected from contractors at onboarding</p>
-                        <p className="text-slate-600">1099-NEC — auto-generated for earnings over $600/year</p>
-                        <p className="text-slate-600">IC classification — contractors are independent, not employees</p>
-                        <p className="text-slate-600">KYC — identity verified via Stripe Identity</p>
-                      </div>
-                    </div>
-
-                    {/* Contract actions */}
-                    <div className="pt-2 border-t border-slate-50">
-                      <span className="text-slate-400 block mb-1">Actions</span>
-                      <div className="space-y-1">
-                        <button
-                          onClick={() => setInput('Show me the company profile and contract status')}
-                          className="block text-slate-500 hover:text-slate-900"
-                        >
-                          check contract status →
-                        </button>
-                        <button
-                          onClick={() => setInput('Generate a DocuSign service agreement')}
-                          className="block text-slate-500 hover:text-slate-900"
-                        >
-                          generate DocuSign contract →
-                        </button>
+                      <div className="space-y-0.5 text-slate-500">
+                        <p>W-9 — collected at contractor onboarding</p>
+                        <p>1099-NEC — auto-generated for $600+ earnings</p>
+                        <p>KYC — Stripe Identity verification</p>
+                        <p>IC classification — independent contractor</p>
                       </div>
                     </div>
                   </div>

@@ -40,7 +40,15 @@ SPEC WRITING METHODOLOGY — when creating a work unit, always follow this proce
 4. Show the user the spec and ask for confirmation before creating.
 5. After creating, suggest adding acceptance criteria, milestones, and a screening interview if the task is complex.
 
-When asked to write a contract, statement of work, or master service agreement, use the draft_sow tool and write a complete, professional document — not a placeholder. Include: parties, scope of work, deliverables, timeline, payment terms, intellectual property assignment, confidentiality, termination, liability, dispute resolution, and signatures. Use the company name and any task details available. This should be ready to sign.
+CONTRACT CREATION — you have two paths:
+1. draft_sow / draft_nda / draft_msa — generates a document as text in the chat for review.
+2. create_contract — creates a REAL legal agreement in the system that contractors MUST sign before starting work. This integrates directly into the student onboarding flow.
+
+When the user asks to create a contract for a task:
+- Use create_contract with a complete, enforceable contract tailored to the specific work. Include: parties (use the company name), scope referencing the work unit spec, deliverables, IP assignment, confidentiality, payment terms, revision policy, termination, dispute resolution, and contractor acknowledgments.
+- After creating, remind the user to activate_contract so it becomes required during onboarding.
+- If a workUnitId is provided, the contract is automatically linked to that task.
+- Always write contracts in plain English, no legalese jargon. Clear, direct, enforceable.
 
 Write in plain short sentences. No markdown formatting, no bullet points, no headers. Just conversational text. Refer to workers as "contractors".`;
 }
@@ -405,5 +413,18 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     });
 
     return reply.send({ success: true });
+  });
+
+  // GET /contracts — list legal agreements
+  fastify.get('/contracts', async (request: FastifyRequest, reply: FastifyReply) => {
+    const authResult = await verifyClerkAuth(request, reply);
+    if (!authResult) return;
+
+    const agreements = await db.legalAgreement.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { signatures: true } } },
+    });
+
+    return reply.send({ contracts: agreements });
   });
 }

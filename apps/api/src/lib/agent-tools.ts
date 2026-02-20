@@ -296,6 +296,11 @@ export const TOOL_DEFINITIONS = [
   // --- Company Management ---
   { type: 'function' as const, function: { name: 'draft_nda', description: 'Generate a non-disclosure agreement for contractors', parameters: { type: 'object', properties: { companyName: { type: 'string' }, scope: { type: 'string', description: 'What confidential info is covered' } } } } },
   { type: 'function' as const, function: { name: 'draft_msa', description: 'Generate a master service agreement between company and Figwork', parameters: { type: 'object', properties: { companyName: { type: 'string' } } } } },
+  { type: 'function' as const, function: { name: 'create_contract', description: 'Create a legal agreement that contractors must sign before starting a task. The content should be a complete, enforceable contract tailored to the specific work unit.', parameters: { type: 'object', properties: { title: { type: 'string', description: 'Contract title e.g. "UGC Content Agreement"' }, content: { type: 'string', description: 'Full contract text — must include scope, deliverables, IP, confidentiality, payment, termination' }, workUnitId: { type: 'string', description: 'Optional — attach to a specific work unit' } }, required: ['title', 'content'] } } },
+  { type: 'function' as const, function: { name: 'list_contracts', description: 'List all legal agreements', parameters: { type: 'object', properties: {} } } },
+  { type: 'function' as const, function: { name: 'get_contract', description: 'Get a contract with its content and signature status', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
+  { type: 'function' as const, function: { name: 'update_contract', description: 'Update a contract — bumps version, optionally requires re-signing', parameters: { type: 'object', properties: { contractId: { type: 'string' }, title: { type: 'string' }, content: { type: 'string' }, requiresResign: { type: 'boolean' } }, required: ['contractId'] } } },
+  { type: 'function' as const, function: { name: 'activate_contract', description: 'Set a contract to active so contractors must sign it during onboarding', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'get_company_profile', description: 'View company profile details', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'update_company_profile', description: 'Edit company name, website, address', parameters: { type: 'object', properties: { companyName: { type: 'string' }, legalName: { type: 'string' }, website: { type: 'string' } } } } },
   { type: 'function' as const, function: { name: 'list_disputes', description: 'List disputes', parameters: { type: 'object', properties: {} } } },
@@ -377,6 +382,11 @@ export async function executeTool(
       // Company Management
       case 'draft_nda': return await toolDraftNDA(args, companyId);
       case 'draft_msa': return await toolDraftMSA(args, companyId);
+      case 'create_contract': return await toolCreateContract(args, companyId);
+      case 'list_contracts': return await toolListContracts();
+      case 'get_contract': return await toolGetContract(args);
+      case 'update_contract': return await toolUpdateContract(args);
+      case 'activate_contract': return await toolActivateContract(args);
       case 'get_company_profile': return await toolGetCompanyProfile(companyId);
       case 'update_company_profile': return await toolUpdateCompanyProfile(args, companyId);
       case 'list_disputes': return await toolListDisputes(companyId);
@@ -1152,6 +1162,96 @@ This agreement is governed by the laws of Delaware, USA.
 SIGNATURES
 ${name}: _______________  Date: ___________
 Figwork, Inc.: _______________  Date: ___________`;
+}
+
+// ============================================================
+// CONTRACT MANAGEMENT (5 tools)
+// ============================================================
+
+async function toolCreateContract(args: any, companyId: string): Promise<string> {
+  const slug = args.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80) + '-' + Date.now().toString(36);
+
+  const agreement = await db.legalAgreement.create({
+    data: {
+      title: args.title,
+      slug,
+      content: args.content,
+      version: 1,
+      requiresResign: true,
+      status: 'draft',
+    },
+  });
+
+  // If a work unit is specified, create an onboarding step linking this agreement
+  if (args.workUnitId) {
+    try {
+      // Store the association via onboarding step
+      const _db = db as any;
+      await _db.onboardingStep.create({
+        data: {
+          stepType: 'agreement',
+          label: args.title,
+          description: `Sign "${args.title}" before starting work`,
+          required: true,
+          enabled: true,
+          gateLevel: 'accept',
+          orderIndex: 99,
+          agreementId: agreement.id,
+        },
+      });
+    } catch {
+      // onboarding_steps table may not exist — non-fatal
+    }
+  }
+
+  return `Created contract "${agreement.title}" (${agreement.id.slice(0, 8)}). Status: draft. Use activate_contract to make it live so contractors must sign it before starting work.`;
+}
+
+async function toolListContracts(): Promise<string> {
+  const agreements = await db.legalAgreement.findMany({
+    orderBy: { createdAt: 'desc' },
+    include: { _count: { select: { signatures: true } } },
+  });
+  if (agreements.length === 0) return 'No contracts found.';
+  return agreements.map(a =>
+    `${a.title} — v${a.version}, ${a.status}, ${a._count.signatures} signatures [${a.id.slice(0, 8)}]`
+  ).join('\n');
+}
+
+async function toolGetContract(args: any): Promise<string> {
+  const a = await db.legalAgreement.findUnique({
+    where: { id: args.contractId },
+    include: { _count: { select: { signatures: true } } },
+  });
+  if (!a) return 'Contract not found.';
+  return `"${a.title}" — v${a.version}, ${a.status}, ${a._count.signatures} signatures, requires re-sign: ${a.requiresResign}\n\n${a.content.slice(0, 2000)}${a.content.length > 2000 ? '\n...(truncated)' : ''}`;
+}
+
+async function toolUpdateContract(args: any): Promise<string> {
+  const a = await db.legalAgreement.findUnique({ where: { id: args.contractId } });
+  if (!a) return 'Contract not found.';
+
+  const data: any = {};
+  if (args.title) data.title = args.title;
+  if (args.content) data.content = args.content;
+  if (args.requiresResign !== undefined) data.requiresResign = args.requiresResign;
+
+  // Bump version if content changed
+  if (args.content && args.content !== a.content) {
+    data.version = a.version + 1;
+  }
+
+  await db.legalAgreement.update({ where: { id: args.contractId }, data });
+  return `Updated "${a.title}" to v${data.version || a.version}.${data.version ? ' Contractors with previous signatures will need to re-sign.' : ''}`;
+}
+
+async function toolActivateContract(args: any): Promise<string> {
+  const a = await db.legalAgreement.findUnique({ where: { id: args.contractId } });
+  if (!a) return 'Contract not found.';
+  if (a.status === 'active') return `"${a.title}" is already active.`;
+
+  await db.legalAgreement.update({ where: { id: args.contractId }, data: { status: 'active' } });
+  return `Activated "${a.title}". Contractors will be required to sign this during onboarding before they can start working on tasks linked to this agreement.`;
 }
 
 async function toolGetCompanyProfile(companyId: string): Promise<string> {
