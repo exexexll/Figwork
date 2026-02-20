@@ -1348,24 +1348,21 @@ async function toolWebSearch(args: any): Promise<string> {
     }
 
     if (serperKey) {
-      const res = await fetch('https://google.serper.dev/search', {
-        method: 'POST',
-        headers: { 'X-API-KEY': serperKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q: query, num: 5 }),
-      });
+      // SerpAPI (serpapi.com)
+      const res = await fetch(`https://serpapi.com/search.json?q=${encodeURIComponent(query)}&api_key=${serperKey}&num=5`);
       if (res.ok) {
         const data = await res.json() as any;
-        const organic = (data.organic || []).slice(0, 5);
+        const organic = (data.organic_results || []).slice(0, 5);
         if (organic.length > 0) {
-          return organic.map((r: any) => `${r.title}\n${r.snippet}\n${r.link}`).join('\n\n').slice(0, 3000);
+          return organic.map((r: any) => `${r.title}\n${r.snippet || ''}\n${r.link}`).join('\n\n').slice(0, 3000);
         }
-        if (data.answerBox?.answer) return data.answerBox.answer;
-        if (data.answerBox?.snippet) return data.answerBox.snippet;
+        if (data.answer_box?.answer) return data.answer_box.answer;
+        if (data.answer_box?.snippet) return data.answer_box.snippet;
       }
     }
 
     // No search API configured — use GPT's built-in knowledge
-    return `[Web search not configured — using built-in knowledge for "${query}"]. To enable web search, add BRAVE_SEARCH_API_KEY or SERPER_API_KEY to the environment. I'll answer based on my training data instead.`;
+    return `[Web search not configured — using built-in knowledge for "${query}"]. To enable, add BRAVE_SEARCH_API_KEY or SERPER_API_KEY to .env. Answering from training data.`;
   } catch (err: any) {
     return `Search error: ${err.message || 'Failed'}. Answering from training data instead.`;
   }
