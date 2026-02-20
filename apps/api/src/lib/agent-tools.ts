@@ -368,10 +368,10 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'get_pow_logs', description: 'Get proof-of-work check-in logs for an execution', parameters: { type: 'object', properties: { executionId: { type: 'string' } }, required: ['executionId'] } } },
   { type: 'function' as const, function: { name: 'request_pow_check', description: 'Request an immediate proof-of-work check-in from a contractor', parameters: { type: 'object', properties: { executionId: { type: 'string' } }, required: ['executionId'] } } },
   { type: 'function' as const, function: { name: 'get_monitoring_summary', description: 'Get a summary of all active work — deadlines at risk, inactive contractors, overdue tasks', parameters: { type: 'object', properties: {} } } },
-  { type: 'function' as const, function: { name: 'plan_analyze', description: 'STEP 1 of project planning. Analyze a project goal and produce a structured brief. Call this first when planning a project.', parameters: { type: 'object', properties: { goal: { type: 'string' }, budget: { type: 'string' }, timeline: { type: 'string' } }, required: ['goal'] } } },
-  { type: 'function' as const, function: { name: 'plan_decompose', description: 'STEP 2 of project planning. Takes the brief from plan_analyze and breaks it into work units with detailed specs. Call after presenting the brief to the user.', parameters: { type: 'object', properties: { brief: { type: 'string', description: 'The project brief JSON from plan_analyze' } }, required: ['brief'] } } },
-  { type: 'function' as const, function: { name: 'plan_price', description: 'STEP 3 of project planning. Prices each work unit. Call after the user approves the work unit breakdown.', parameters: { type: 'object', properties: { workUnits: { type: 'string', description: 'The work units JSON from plan_decompose' } }, required: ['workUnits'] } } },
-  { type: 'function' as const, function: { name: 'plan_legal', description: 'STEP 4 of project planning. Generates contracts and onboarding for each work unit. Call after pricing is approved.', parameters: { type: 'object', properties: { projectName: { type: 'string' }, workUnits: { type: 'string', description: 'The priced work units JSON' } }, required: ['projectName', 'workUnits'] } } },
+  { type: 'function' as const, function: { name: 'plan_analyze', description: 'STEP 1: Analyze a project goal. Data is stored server-side for the next steps.', parameters: { type: 'object', properties: { goal: { type: 'string' }, budget: { type: 'string' }, timeline: { type: 'string' } }, required: ['goal'] } } },
+  { type: 'function' as const, function: { name: 'plan_decompose', description: 'STEP 2: Break into work units. Reads the brief from step 1 automatically — no need to pass data.', parameters: { type: 'object', properties: {} } } },
+  { type: 'function' as const, function: { name: 'plan_price', description: 'STEP 3: Price each work unit. Reads work units from step 2 automatically.', parameters: { type: 'object', properties: {} } } },
+  { type: 'function' as const, function: { name: 'plan_legal', description: 'STEP 4: Generate contracts + onboarding. Reads everything from previous steps automatically.', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'web_search', description: 'Search the web for information — use when the user asks about market rates, competitor analysis, industry standards, legal requirements, or anything you need current data for', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Search query' } }, required: ['query'] } } },
   { type: 'function' as const, function: { name: 'get_company_profile', description: 'View company profile details', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'update_company_profile', description: 'Edit company name, website, address', parameters: { type: 'object', properties: { companyName: { type: 'string' }, legalName: { type: 'string' }, website: { type: 'string' } } } } },
@@ -488,10 +488,10 @@ export async function executeTool(
       case 'get_pow_logs': return await toolGetPOWLogs(args, companyId);
       case 'request_pow_check': return await toolRequestPOWCheck(args, companyId);
       case 'get_monitoring_summary': return await toolGetMonitoringSummary(companyId);
-      case 'plan_analyze': return await toolPlanAnalyze(args);
-      case 'plan_decompose': return await toolPlanDecompose(args);
-      case 'plan_price': return await toolPlanPrice(args);
-      case 'plan_legal': return await toolPlanLegal(args);
+      case 'plan_analyze': return await toolPlanAnalyze(args, companyId);
+      case 'plan_decompose': return await toolPlanDecompose(args, companyId);
+      case 'plan_price': return await toolPlanPrice(args, companyId);
+      case 'plan_legal': return await toolPlanLegal(args, companyId);
       case 'web_search': return await toolWebSearch(args);
       case 'get_company_profile': return await toolGetCompanyProfile(companyId);
       case 'update_company_profile': return await toolUpdateCompanyProfile(args, companyId);
@@ -1664,9 +1664,13 @@ async function toolGetMonitoringSummary(companyId: string): Promise<string> {
 }
 
 // ============================================================
-// MULTI-AGENT PROJECT PLANNER — 4 separate stages
-// Agent calls each stage tool one at a time, presents results between stages
+// MULTI-AGENT PROJECT PLANNER — server-side chained stages
+// Each stage stores its output; next stage reads it directly.
+// Agent just triggers each stage — no data passing through GPT.
 // ============================================================
+
+// Server-side plan state — keyed by companyId
+const planState = new Map<string, { brief?: any; workUnits?: any[]; estimates?: any; legal?: any }>();
 
 async function gpt52(systemPrompt: string, userPrompt: string, maxTokens: number = 4096): Promise<string> {
   const openai = getOpenAIClient();
@@ -1682,7 +1686,13 @@ async function gpt52(systemPrompt: string, userPrompt: string, maxTokens: number
   return res.choices[0]?.message?.content || '';
 }
 
-async function toolPlanAnalyze(args: any): Promise<string> {
+function parseJSON(raw: string): any {
+  const match = raw.match(/\{[\s\S]*\}/);
+  return JSON.parse(match?.[0] || raw);
+}
+
+async function toolPlanAnalyze(args: any, companyId?: string): Promise<string> {
+  const cid = companyId || 'default';
   const { goal, budget, timeline } = args;
   try {
     const raw = await gpt52(
@@ -1690,124 +1700,101 @@ async function toolPlanAnalyze(args: any): Promise<string> {
       `Goal: ${goal}\nBudget: ${budget || 'flexible'}\nTimeline: ${timeline || 'flexible'}`,
       2048
     );
-    const match = raw.match(/\{[\s\S]*\}/);
-    return match?.[0] || raw;
+    const brief = parseJSON(raw);
+    // Store server-side — next stage reads this directly
+    planState.set(cid, { brief });
+    return `Analyzed: "${brief.projectName}" — ${brief.projectType}, team of ${brief.estimatedTeamSize}. Risks: ${(brief.riskFactors || []).join(', ')}. Call plan_decompose next.`;
   } catch (e: any) { return `Analysis failed: ${e.message?.slice(0, 100)}`; }
 }
 
-async function toolPlanDecompose(args: any): Promise<string> {
-  try {
-    // Accept brief as JSON string or plain text — be resilient
-    const briefText = typeof args.brief === 'string' ? args.brief : JSON.stringify(args.brief);
+async function toolPlanDecompose(args: any, companyId?: string): Promise<string> {
+  const cid = companyId || 'default';
+  const state = planState.get(cid);
+  // Use stored brief — NOT what the agent passes
+  const brief = state?.brief;
+  if (!brief) return 'No project brief found. Call plan_analyze first.';
 
-    // First call: get the list of task titles
+  try {
+    // Step 1: get task list
     const listRaw = await gpt52(
-      `You are a work architect. Given a project description, list ALL the individual tasks/roles/work units needed to execute it. Return JSON: {"tasks":[{"title":"...","category":"writing|design|research|data-entry|development|marketing|operations","complexityScore":1-5,"minTier":"novice|pro|elite"}]}. Be thorough — list every task needed.`,
-      briefText.slice(0, 4000),
+      `You are a work architect. Break this project into individual tasks. Return JSON: {"tasks":[{"title":"...","category":"...","complexityScore":1-5,"minTier":"novice|pro|elite"}]}`,
+      JSON.stringify(brief),
       3072
     );
+    const taskList = parseJSON(listRaw).tasks || [];
+    if (taskList.length === 0) return 'Could not identify tasks from the brief.';
 
-    let taskList: any[];
-    try {
-      const listMatch = listRaw.match(/\{[\s\S]*\}/);
-      const parsed = JSON.parse(listMatch?.[0] || '{}');
-      taskList = parsed.tasks || parsed.workUnits || [];
-    } catch {
-      // Fallback: try to extract any array
-      try {
-        const arrMatch = listRaw.match(/\[[\s\S]*\]/);
-        taskList = JSON.parse(arrMatch?.[0] || '[]');
-      } catch { taskList = []; }
-    }
-
-    if (taskList.length === 0) {
-      // Last resort: ask GPT to just list task names
-      const fallback = await gpt52(
-        `List the individual tasks/roles needed for this project. Return JSON: {"tasks":[{"title":"...","category":"general","complexityScore":3,"minTier":"novice"}]}`,
-        `Project: ${briefText.slice(0, 2000)}`,
-        2048
-      );
-      try {
-        const m = fallback.match(/\{[\s\S]*\}/);
-        taskList = JSON.parse(m?.[0] || '{}').tasks || [];
-      } catch { return `Could not identify tasks from: "${briefText.slice(0, 100)}...". Try describing specific deliverables.`; }
-    }
-
-    if (taskList.length === 0) return `No tasks identified. Describe specific deliverables needed.`;
-
-    // Second call: generate detailed specs one batch at a time (5 per batch)
+    // Step 2: detail specs in batches of 5
     const allUnits: any[] = [];
     for (let i = 0; i < taskList.length; i += 5) {
       const batch = taskList.slice(i, i + 5);
       const batchRaw = await gpt52(
-        `You are a work architect. Write detailed specs for these tasks. Return JSON: {"workUnits":[{"title":"...","spec":"(2-3 paragraphs: context, requirements, deliverables, quality standards)","category":"...","requiredSkills":["..."],"deliverableFormat":["..."],"acceptanceCriteria":[{"criterion":"...","required":true}],"complexityScore":1-5,"minTier":"novice|pro|elite","deadlineHours":N,"revisionLimit":2,"assignmentMode":"auto"}]}`,
-        `Tasks to detail:\n${batch.map((t: any, j: number) => `${i + j + 1}. ${t.title} (${t.category}, complexity ${t.complexityScore})`).join('\n')}`,
+        `Write detailed specs for these tasks. Return JSON: {"workUnits":[{"title":"...","spec":"(2-3 paragraphs)","category":"...","requiredSkills":["..."],"deliverableFormat":["..."],"acceptanceCriteria":[{"criterion":"...","required":true}],"complexityScore":1-5,"minTier":"novice|pro|elite","deadlineHours":N,"revisionLimit":2,"assignmentMode":"auto"}]}`,
+        batch.map((t: any, j: number) => `${i + j + 1}. ${t.title} (${t.category}, complexity ${t.complexityScore})`).join('\n'),
         4096
       );
-      const batchMatch = batchRaw.match(/\{[\s\S]*\}/);
-      try {
-        const parsed = JSON.parse(batchMatch?.[0] || batchRaw);
-        allUnits.push(...(parsed.workUnits || []));
-      } catch {}
+      try { allUnits.push(...(parseJSON(batchRaw).workUnits || [])); } catch {}
     }
 
-    return JSON.stringify({ workUnits: allUnits });
+    // Store server-side
+    planState.set(cid, { ...state, workUnits: allUnits });
+
+    const summary = allUnits.map((wu, i) => `${i + 1}. ${wu.title} (${wu.category}, ${wu.minTier})`).join('\n');
+    return `Decomposed into ${allUnits.length} work units:\n${summary}\n\nCall plan_price next.`;
   } catch (e: any) { return `Decomposition failed: ${e.message?.slice(0, 100)}`; }
 }
 
-async function toolPlanPrice(args: any): Promise<string> {
-  try {
-    let workUnits: any[];
-    try { const p = JSON.parse(args.workUnits); workUnits = p.workUnits || p; } catch { workUnits = []; }
-    if (!Array.isArray(workUnits) || workUnits.length === 0) {
-      // Try pricing from raw text
-      const raw = await gpt52(
-        `You are a pricing expert. Price each work unit in cents. Return JSON: {"estimates":[{"title":"...","priceInCents":N,"reasoning":"...","estimatedHours":N}],"totalSubtotalCents":N,"platformFeesCents":N,"totalCents":N}. Platform fee is 15%.`,
-        `Work units: ${args.workUnits.slice(0, 3000)}`,
-        4096
-      );
-      const match = raw.match(/\{[\s\S]*\}/);
-      return match?.[0] || raw;
-    }
+async function toolPlanPrice(args: any, companyId?: string): Promise<string> {
+  const cid = companyId || 'default';
+  const state = planState.get(cid);
+  const workUnits = state?.workUnits;
+  if (!workUnits?.length) return 'No work units found. Call plan_decompose first.';
 
-    // Batch pricing: 5 at a time
+  try {
     const allEstimates: any[] = [];
     for (let i = 0; i < workUnits.length; i += 5) {
       const batch = workUnits.slice(i, i + 5);
       const raw = await gpt52(
-        `You are a pricing expert. Price each work unit in cents. Return JSON: {"estimates":[{"title":"...","priceInCents":N,"reasoning":"...","estimatedHours":N}]}. Platform fee is 15%.`,
-        `Work units:\n${batch.map((wu: any, j: number) => `${i + j + 1}. ${wu.title} — ${wu.category || ''}, complexity ${wu.complexityScore || 3}, tier: ${wu.minTier || 'novice'}, deadline: ${wu.deadlineHours || 48}h`).join('\n')}`,
+        `Price each work unit in cents. Return JSON: {"estimates":[{"title":"...","priceInCents":N,"reasoning":"...","estimatedHours":N}]}. Platform fee is 15%.`,
+        batch.map((wu: any, j: number) => `${i + j + 1}. ${wu.title} — complexity ${wu.complexityScore || 3}, tier: ${wu.minTier || 'novice'}, deadline: ${wu.deadlineHours || 48}h`).join('\n'),
         2048
       );
-      const match = raw.match(/\{[\s\S]*\}/);
-      try { const p = JSON.parse(match?.[0] || raw); allEstimates.push(...(p.estimates || [])); } catch {}
+      try { allEstimates.push(...(parseJSON(raw).estimates || [])); } catch {}
     }
 
     const subtotal = allEstimates.reduce((s, e) => s + (e.priceInCents || 0), 0);
     const fees = Math.round(subtotal * 0.15);
-    return JSON.stringify({ estimates: allEstimates, totalSubtotalCents: subtotal, platformFeesCents: fees, totalCents: subtotal + fees });
+    const result = { estimates: allEstimates, totalSubtotalCents: subtotal, platformFeesCents: fees, totalCents: subtotal + fees };
+
+    // Store and merge prices into work units
+    workUnits.forEach((wu: any, i: number) => {
+      if (allEstimates[i]) wu.priceInCents = allEstimates[i].priceInCents;
+    });
+    planState.set(cid, { ...state, workUnits, estimates: result });
+
+    const summary = allEstimates.map((e, i) => `${i + 1}. ${e.title} — $${((e.priceInCents || 0) / 100).toFixed(0)} (${e.reasoning})`).join('\n');
+    return `Priced ${allEstimates.length} tasks:\n${summary}\n\nTotal: $${(subtotal / 100).toFixed(0)} + $${(fees / 100).toFixed(0)} fees = $${((subtotal + fees) / 100).toFixed(0)}\n\nCall plan_legal next.`;
   } catch (e: any) { return `Pricing failed: ${e.message?.slice(0, 100)}`; }
 }
 
-async function toolPlanLegal(args: any): Promise<string> {
-  try {
-    // Truncate work units to prevent timeout — just titles and categories
-    let wuSummary = args.workUnits;
-    try {
-      const parsed = JSON.parse(args.workUnits);
-      const units = parsed.workUnits || parsed.estimates || parsed;
-      if (Array.isArray(units) && units.length > 0) {
-        wuSummary = units.map((wu: any) => `${wu.title || wu.name} (${wu.category || 'general'})`).join(', ');
-      }
-    } catch { wuSummary = args.workUnits.slice(0, 2000); }
+async function toolPlanLegal(args: any, companyId?: string): Promise<string> {
+  const cid = companyId || 'default';
+  const state = planState.get(cid);
+  const workUnits = state?.workUnits;
+  const brief = state?.brief;
+  if (!workUnits?.length) return 'No work units found. Run the earlier stages first.';
 
+  try {
+    const taskSummary = workUnits.map((wu: any) => wu.title).join(', ');
     const raw = await gpt52(
-      `You are a legal specialist. Write ONE master contractor agreement and ONE onboarding template that applies to all tasks. Return JSON: {"contract":{"title":"...","content":"Complete enforceable agreement (scope, IP, confidentiality, payment, termination, dispute resolution)"},"onboarding":{"blocks":[{"type":"hero","content":{"heading":"...","subheading":"..."}},{"type":"text","content":{"heading":"Instructions","body":"..."}},{"type":"checklist","content":{"heading":"Before You Start","items":["..."]}},{"type":"cta","content":{"heading":"Ready?","body":"...","buttonText":"Start Working"}}]}}`,
-      `Project: ${args.projectName}\nTasks: ${wuSummary}`,
+      `Write ONE master contractor agreement and ONE onboarding template. Return JSON: {"contract":{"title":"...","content":"Full enforceable agreement text"},"onboarding":{"blocks":[{"type":"hero","content":{"heading":"...","subheading":"..."}},{"type":"text","content":{"heading":"Instructions","body":"..."}},{"type":"checklist","content":{"heading":"Before You Start","items":["..."]}},{"type":"cta","content":{"heading":"Ready?","body":"...","buttonText":"Start Working"}}]}}`,
+      `Project: ${brief?.projectName || args.projectName || 'Project'}\nTasks: ${taskSummary}`,
       4096
     );
-    const match = raw.match(/\{[\s\S]*\}/);
-    return match?.[0] || raw;
+    const legal = parseJSON(raw);
+    planState.set(cid, { ...state, legal });
+
+    return `Legal package ready:\n- Contract: "${legal.contract?.title}"\n- Onboarding: ${legal.onboarding?.blocks?.length || 0} blocks\n\nPlan complete. Ready to create all ${workUnits.length} work units, contract, and onboarding pages. Ask the user to confirm.`;
   } catch (e: any) { return `Legal planning failed: ${e.message?.slice(0, 100)}`; }
 }
 
