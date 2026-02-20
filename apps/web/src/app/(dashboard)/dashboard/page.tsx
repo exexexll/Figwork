@@ -739,7 +739,7 @@ export default function DashboardPage() {
 
       {/* ── Panel (right) ── */}
       {panelOpen && (
-        <div style={{ width: panelWidth }} className="border-l border-slate-200/50 bg-white/80 flex flex-col flex-shrink-0 overflow-hidden">
+        <div style={{ width: panelWidth }} className="border-l border-slate-200/50 bg-gradient-to-b from-white/90 via-white/80 to-violet-50/30 flex flex-col flex-shrink-0 overflow-hidden">
           <div className="h-10 flex items-center justify-between px-4 border-b border-slate-100 flex-shrink-0">
             <span className="text-xs font-medium text-slate-700 truncate">{selectedWU ? selectedWU.title : 'Work units'}</span>
             <button onClick={() => setPanelOpen(false)} className="text-slate-300 hover:text-slate-500"><X className="w-3.5 h-3.5" /></button>
@@ -750,7 +750,7 @@ export default function DashboardPage() {
             <div className="px-4 pt-2 flex gap-3 border-b border-slate-100 flex-shrink-0 overflow-x-auto">
               {['overview', 'execution', 'financial', 'legal', 'onboard'].map(tab => (
                 <button key={tab} onClick={() => setPanelTab(tab as any)}
-                  className={`pb-2 text-xs capitalize whitespace-nowrap ${panelTab === tab ? 'text-slate-900 border-b-2 border-slate-900' : 'text-slate-400 hover:text-slate-600'}`}>
+                  className={`pb-2 text-xs capitalize whitespace-nowrap ${panelTab === tab ? 'text-slate-900 border-b-2 border-violet-400' : 'text-slate-400 hover:text-slate-600'}`}>
                   {tab}
                 </button>
               ))}
@@ -806,7 +806,7 @@ export default function DashboardPage() {
                       )}
                       {selectedWU.status === 'draft' && (
                         <button onClick={fundAndPublish}
-                          className="flex-1 py-1.5 text-xs text-white bg-slate-900 rounded hover:bg-slate-800 transition-colors">
+                          className="flex-1 py-1.5 text-xs text-white bg-gradient-to-r from-violet-600 to-indigo-600 rounded hover:from-violet-700 hover:to-indigo-700 transition-all">
                           Publish
                         </button>
                       )}
@@ -890,7 +890,7 @@ export default function DashboardPage() {
                       <div className="flex justify-between items-center"><span className="text-slate-500">Platform fee</span><span className="text-slate-700">${(selectedWU.escrow.platformFeeInCents / 100).toFixed(2)}</span></div>
                       <div className="flex justify-between items-center"><span className="text-slate-500">Contractor receives</span><span className="text-slate-700">${(selectedWU.escrow.netAmountInCents / 100).toFixed(2)}</span></div>
                       {selectedWU.escrow.status === 'pending' && (
-                        <button onClick={fundAndPublish} className="w-full mt-2 py-1.5 text-xs text-white bg-slate-900 rounded hover:bg-slate-800 transition-colors">Fund & Publish</button>
+                        <button onClick={fundAndPublish} className="w-full mt-2 py-1.5 text-xs text-white bg-gradient-to-r from-violet-600 to-indigo-600 rounded hover:from-violet-700 hover:to-indigo-700 transition-all">Fund & Publish</button>
                       )}
                     </>}
                     {sideData.billing && (
@@ -1128,7 +1128,7 @@ export default function DashboardPage() {
                 {hasChanges && (
                   <div className="pt-3 mt-3 border-t border-slate-100">
                     <button onClick={confirmChanges} disabled={saving}
-                      className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-white bg-slate-900 rounded hover:bg-slate-800 disabled:opacity-50 transition-colors">
+                      className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-white bg-gradient-to-r from-violet-600 to-indigo-600 rounded hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 transition-all">
                       <Check className="w-3.5 h-3.5" />
                       {saving ? 'Saving...' : `Confirm ${Object.keys(pendingChanges).length} change${Object.keys(pendingChanges).length > 1 ? 's' : ''}`}
                     </button>
@@ -1206,10 +1206,10 @@ function ToolStatus({ label, toolName, phase }: { label: string; toolName: strin
 
   return (
     <div className="flex items-center gap-2 py-1 pl-0.5">
-      <span className={`${phase === 'start' ? 'text-violet-500 animate-pulse' : 'text-emerald-500'}`}>
+      <span className={`${phase === 'start' ? 'text-violet-500' : 'text-emerald-500'}`}>
         {phase === 'start' ? <Loader2 className="w-3 h-3 animate-spin" /> : icon}
       </span>
-      <span className={`text-xs ${phase === 'start' ? 'text-slate-500' : 'text-slate-400'}`}>
+      <span className={`text-xs ${phase === 'start' ? 'text-violet-600/70' : 'text-slate-400'}`}>
         {label}{phase === 'start' ? '…' : ''}
       </span>
       {phase === 'done' && <span className="text-emerald-500 text-[10px]">✓</span>}
