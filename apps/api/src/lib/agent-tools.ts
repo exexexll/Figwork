@@ -319,6 +319,7 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'activate_contract', description: 'Set a contract to active so contractors must sign it during onboarding', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'set_onboarding', description: 'Set the contractor onboarding page for a work unit — welcome, instructions, checklist, examples, communication channels, and deliverable format', parameters: { type: 'object', properties: { workUnitId: { type: 'string' }, welcome: { type: 'string', description: 'Welcome message' }, instructions: { type: 'string', description: 'Step-by-step instructions' }, exampleWorkUrls: { type: 'array', items: { type: 'string' }, description: 'URLs to example deliverables' }, checklist: { type: 'array', items: { type: 'string' }, description: 'Checklist items' }, communicationChannel: { type: 'string', description: 'How to communicate — e.g. Slack invite link, email, Discord, or Figwork platform only' }, deliverableSubmissionMethod: { type: 'string', description: 'How to submit — e.g. Google Drive link, GitHub PR, upload to Figwork, email attachment' } }, required: ['workUnitId'] } } },
   { type: 'function' as const, function: { name: 'get_onboarding', description: 'Get the current onboarding page config for a work unit', parameters: { type: 'object', properties: { workUnitId: { type: 'string' } }, required: ['workUnitId'] } } },
+  { type: 'function' as const, function: { name: 'web_search', description: 'Search the web for information — use when the user asks about market rates, competitor analysis, industry standards, legal requirements, or anything you need current data for', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Search query' } }, required: ['query'] } } },
   { type: 'function' as const, function: { name: 'get_company_profile', description: 'View company profile details', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'update_company_profile', description: 'Edit company name, website, address', parameters: { type: 'object', properties: { companyName: { type: 'string' }, legalName: { type: 'string' }, website: { type: 'string' } } } } },
   { type: 'function' as const, function: { name: 'list_disputes', description: 'List disputes', parameters: { type: 'object', properties: {} } } },
@@ -416,6 +417,7 @@ export async function executeTool(
       case 'activate_contract': return await toolActivateContract(args);
       case 'set_onboarding': return await toolSetOnboarding(args, companyId);
       case 'get_onboarding': return await toolGetOnboarding(args, companyId);
+      case 'web_search': return await toolWebSearch(args);
       case 'get_company_profile': return await toolGetCompanyProfile(companyId);
       case 'update_company_profile': return await toolUpdateCompanyProfile(args, companyId);
       case 'list_disputes': return await toolListDisputes(companyId);
@@ -1320,6 +1322,46 @@ async function toolGetOnboarding(args: any, companyId: string): Promise<string> 
   if (page.exampleWorkUrls?.length) r += `Examples: ${page.exampleWorkUrls.join(', ')}\n`;
   if (page.checklist?.length) r += `Checklist:\n${page.checklist.map((c: string, i: number) => `${i + 1}. ${c}`).join('\n')}`;
   return r || 'Onboarding page is empty.';
+}
+
+async function toolWebSearch(args: any): Promise<string> {
+  const query = args.query;
+  if (!query) return 'No search query provided.';
+
+  try {
+    // Use a simple search API — Google Custom Search or SerpAPI
+    // For now, use DuckDuckGo instant answer API (free, no key needed)
+    const encoded = encodeURIComponent(query);
+    const res = await fetch(`https://api.duckduckgo.com/?q=${encoded}&format=json&no_html=1&skip_disambig=1`);
+    if (!res.ok) return `Search failed (${res.status}).`;
+
+    const data = await res.json() as any;
+
+    let results = '';
+
+    // Abstract (main answer)
+    if (data.Abstract) {
+      results += data.Abstract + '\n';
+      if (data.AbstractSource) results += `Source: ${data.AbstractSource}\n`;
+    }
+
+    // Related topics
+    if (data.RelatedTopics?.length) {
+      results += '\nRelated:\n';
+      for (const topic of data.RelatedTopics.slice(0, 5)) {
+        if (topic.Text) results += `- ${topic.Text}\n`;
+      }
+    }
+
+    // If no results from instant answer, provide a helpful fallback
+    if (!results.trim()) {
+      results = `No instant results for "${query}". I can provide general guidance based on my training data. What specifically would you like to know?`;
+    }
+
+    return results.slice(0, 3000);
+  } catch (err: any) {
+    return `Search error: ${err.message || 'Failed to search'}. I can still help based on my general knowledge.`;
+  }
 }
 
 async function toolGetCompanyProfile(companyId: string): Promise<string> {

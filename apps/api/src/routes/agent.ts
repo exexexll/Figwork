@@ -4,6 +4,7 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import multipart from '@fastify/multipart';
 import { db } from '@figwork/db';
 import { getOpenAIClient } from '@figwork/ai';
 import { verifyClerkAuth } from '../lib/clerk.js';
@@ -15,7 +16,11 @@ function buildSystemPrompt(company: any, context: any): string {
 
 CURRENT STATE: ${context.activeWorkUnits} active tasks, ${context.inProgressExecutions} in progress, ${context.pendingReviews} awaiting review, $${(context.monthlySpend / 100).toFixed(2)} spent this month.
 
-You have 54 tools. Use them. When creating or spending, confirm first. After any action, state what happened and suggest the next step.
+You have 57 tools. Use them. When creating or spending, confirm first. After any action, state what happened and suggest the next step.
+
+You CAN read files. When a user uploads a PDF, DOCX, or text file, its content is extracted and included in the message. Read and analyze it thoroughly — reference specific details from the document in your response.
+
+You CAN search the web using the web_search tool. Use it when you need current market rates, industry standards, competitor info, legal requirements, or any external data.
 
 ===== AGENT MODES =====
 
@@ -82,6 +87,9 @@ async function getCompanyContext(companyId: string) {
 }
 
 export default async function agentRoutes(fastify: FastifyInstance) {
+  // Register multipart for file uploads
+  await fastify.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB max
+
   // POST /chat — streaming agent conversation
   fastify.post('/chat', async (request: FastifyRequest, reply: FastifyReply) => {
     const authResult = await verifyClerkAuth(request, reply);
@@ -419,6 +427,63 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     });
 
     return reply.send({ success: true });
+  });
+
+  // POST /extract-file — extract text from PDF/DOCX/images for the chat agent
+  fastify.post('/extract-file', async (request: FastifyRequest, reply: FastifyReply) => {
+    const authResult = await verifyClerkAuth(request, reply);
+    if (!authResult) return;
+
+    try {
+      const data = await request.file();
+      if (!data) return reply.status(400).send({ error: 'No file uploaded' });
+
+      const buffer = await data.toBuffer();
+      const filename = data.filename || 'unknown';
+      const mimetype = data.mimetype || '';
+
+      let text = '';
+
+      if (mimetype === 'application/pdf' || filename.endsWith('.pdf')) {
+        // Extract text from PDF using simple regex on raw buffer
+        // For production, use pdf-parse library
+        try {
+          const raw = buffer.toString('utf-8');
+          // Simple PDF text extraction — find text between BT/ET markers
+          const matches = raw.match(/\(([^)]+)\)/g);
+          if (matches) {
+            text = matches.map(m => m.slice(1, -1)).join(' ').replace(/\\n/g, '\n').slice(0, 15000);
+          }
+          if (!text || text.length < 50) {
+            // Fallback: try to find readable text
+            text = raw.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 15000);
+          }
+        } catch {
+          text = '[PDF text extraction failed]';
+        }
+      } else if (mimetype.includes('wordprocessing') || filename.endsWith('.docx')) {
+        // DOCX is a zip — extract document.xml and strip tags
+        try {
+          const AdmZip = (await import('adm-zip')).default;
+          const zip = new AdmZip(buffer);
+          const docXml = zip.getEntry('word/document.xml');
+          if (docXml) {
+            const xml = docXml.getData().toString('utf-8');
+            text = xml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 15000);
+          }
+        } catch {
+          text = '[DOCX text extraction failed]';
+        }
+      } else if (mimetype.startsWith('text/') || filename.match(/\.(txt|csv|md|json|js|ts|py)$/)) {
+        text = buffer.toString('utf-8').slice(0, 15000);
+      } else {
+        text = `[Binary file: ${filename}, ${(buffer.length / 1024).toFixed(0)}KB, type: ${mimetype}]`;
+      }
+
+      return reply.send({ text, filename, size: buffer.length });
+    } catch (err: any) {
+      return reply.status(500).send({ error: 'File processing failed', details: err?.message });
+    }
   });
 
   // GET /onboarding/:workUnitId — get onboarding page for a work unit (public for students)

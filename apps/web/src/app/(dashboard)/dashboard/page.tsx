@@ -280,21 +280,37 @@ export default function DashboardPage() {
     const text = input.trim();
     if (!text || streaming) return;
 
-    // Read attached files and append to message
+    // Read attached files — upload to backend for processing
     let fullMessage = text;
     if (attachedFiles.length > 0) {
       for (const file of attachedFiles) {
         try {
-          // Only read plain text files — skip binary (images, PDFs)
           const isText = file.type.startsWith('text/') ||
             file.name.endsWith('.txt') || file.name.endsWith('.csv') ||
             file.name.endsWith('.md') || file.name.endsWith('.json');
 
           if (isText) {
             const content = await file.text();
-            fullMessage += `\n\n--- ${file.name} ---\n${content.slice(0, 8000)}${content.length > 8000 ? '\n...(truncated)' : ''}`;
+            fullMessage += `\n\n--- FILE: ${file.name} ---\n${content.slice(0, 12000)}${content.length > 12000 ? '\n...(truncated)' : ''}\n--- END FILE ---`;
           } else {
-            fullMessage += `\n\n[Attached file: ${file.name}, ${(file.size / 1024).toFixed(0)}KB, type: ${file.type || 'unknown'}]`;
+            // For PDF/DOCX/images — send as base64 to backend for extraction
+            const t = await getToken();
+            if (t) {
+              const formData = new FormData();
+              formData.append('file', file);
+              const extractRes = await fetch(`${API_URL}/api/agent/extract-file`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${t}` },
+                body: formData,
+              }).catch(() => null);
+
+              if (extractRes?.ok) {
+                const extracted = await extractRes.json();
+                fullMessage += `\n\n--- FILE: ${file.name} ---\n${extracted.text?.slice(0, 12000) || '[Could not extract text]'}${(extracted.text?.length || 0) > 12000 ? '\n...(truncated)' : ''}\n--- END FILE ---`;
+              } else {
+                fullMessage += `\n\n[Attached: ${file.name}, ${(file.size / 1024).toFixed(0)}KB — could not extract text]`;
+              }
+            }
           }
         } catch {
           fullMessage += `\n\n[Attached: ${file.name}]`;
