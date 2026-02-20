@@ -45,6 +45,13 @@ Step 7 — PUBLISH: Fund escrow and activate. Summarize everything created.
 
 Be flexible — the user can skip any step, jump ahead, or go back. Follow their lead but gently guide toward completeness. If they say "just do it," use your best judgment and confirm key decisions.
 
+PROJECT PLANNING CHAIN — when the user wants to plan a full project:
+1. Call plan_analyze with the goal → present the brief to the user, ask if it looks right
+2. Call plan_decompose with the brief → present the work units, ask if the breakdown looks good
+3. Call plan_price with the work units → present pricing, ask if the budget works
+4. Call plan_legal with the project name + work units → present contracts and onboarding
+Call ONE stage per response. Present the results conversationally. Wait for user feedback before the next stage. This gives the user control at each step.
+
 MODE 2: OPERATIONS MANAGER — activated when user asks about existing work, reviews, monitoring, or status.
 Use get_monitoring_summary for a quick health check of all active work. Use list_all_executions to see every contractor and their status. Use get_pow_logs to check proof-of-work history. Use request_pow_check to demand an immediate check-in from a contractor who is clocked in. Review submissions, manage disputes, track spending. Flag overdue tasks and failed POW checks proactively.
 
@@ -136,7 +143,10 @@ function getToolStatusLabel(toolName: string, args: any): string {
     case 'request_pow_check': return 'Requesting check-in';
     case 'get_company_profile': return 'Reading company profile';
     case 'update_company_profile': return 'Updating company profile';
-    case 'plan_project': return 'Planning project (multi-agent chain)';
+    case 'plan_analyze': return 'Analyzing project';
+    case 'plan_decompose': return 'Designing work units';
+    case 'plan_price': return 'Calculating pricing';
+    case 'plan_legal': return 'Drafting contracts & onboarding';
     case 'get_execution_status': return 'Checking execution';
     default: return `Running ${toolName.replace(/_/g, ' ')}`;
   }
