@@ -122,32 +122,47 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     ];
 
     // Add conversation history — must maintain valid tool_calls→tool pairing
+    // OpenAI requires EVERY tool_call_id to have a matching tool response
     const history = conversation.messages || [];
     for (let i = 0; i < history.length; i++) {
       const msg = history[i];
       if (msg.role === 'user') {
         openaiMessages.push({ role: 'user', content: msg.content || '' });
       } else if (msg.role === 'assistant') {
-        const assistantMsg: any = { role: 'assistant', content: msg.content || '' };
         if (msg.toolCalls && Array.isArray(msg.toolCalls) && (msg.toolCalls as any[]).length > 0) {
-          assistantMsg.tool_calls = msg.toolCalls;
-          openaiMessages.push(assistantMsg);
-          // Collect all following tool messages that belong to this assistant message
-          const toolCallIds = new Set((msg.toolCalls as any[]).map((tc: any) => tc.id));
-          while (i + 1 < history.length && history[i + 1].role === 'tool') {
-            i++;
-            const toolMsg = history[i];
-            const results = toolMsg.toolResults as any;
-            if (results?.toolCallId && toolCallIds.has(results.toolCallId)) {
-              openaiMessages.push({
+          const toolCalls = msg.toolCalls as any[];
+          const requiredIds = new Set(toolCalls.map((tc: any) => tc.id));
+
+          // Peek ahead and collect tool responses
+          const toolResponses: any[] = [];
+          let j = i + 1;
+          while (j < history.length && history[j].role === 'tool') {
+            const results = history[j].toolResults as any;
+            if (results?.toolCallId && requiredIds.has(results.toolCallId)) {
+              toolResponses.push({
                 role: 'tool',
                 tool_call_id: results.toolCallId,
                 content: results.content || '',
               });
+              requiredIds.delete(results.toolCallId);
+            }
+            j++;
+          }
+
+          // Only include this assistant+tool group if ALL tool_calls have responses
+          if (requiredIds.size === 0) {
+            openaiMessages.push({ role: 'assistant', content: msg.content || '', tool_calls: toolCalls });
+            openaiMessages.push(...toolResponses);
+          } else {
+            // Incomplete tool responses — skip this group, add content-only version
+            if (msg.content) {
+              openaiMessages.push({ role: 'assistant', content: msg.content });
             }
           }
+
+          i = j - 1; // Skip past tool messages we already processed
         } else {
-          openaiMessages.push(assistantMsg);
+          openaiMessages.push({ role: 'assistant', content: msg.content || '' });
         }
       }
       // Skip orphaned tool messages (handled above)

@@ -294,6 +294,8 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'update_billing', description: 'Update billing method', parameters: { type: 'object', properties: { billingMethod: { type: 'string', enum: ['card', 'ach'] }, monthlyBudgetCap: { type: 'number' } } } } },
   { type: 'function' as const, function: { name: 'generate_contract', description: 'Generate a DocuSign service agreement', parameters: { type: 'object', properties: {} } } },
   // --- Company Management ---
+  { type: 'function' as const, function: { name: 'draft_nda', description: 'Generate a non-disclosure agreement for contractors', parameters: { type: 'object', properties: { companyName: { type: 'string' }, scope: { type: 'string', description: 'What confidential info is covered' } } } } },
+  { type: 'function' as const, function: { name: 'draft_msa', description: 'Generate a master service agreement between company and Figwork', parameters: { type: 'object', properties: { companyName: { type: 'string' } } } } },
   { type: 'function' as const, function: { name: 'get_company_profile', description: 'View company profile details', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'update_company_profile', description: 'Edit company name, website, address', parameters: { type: 'object', properties: { companyName: { type: 'string' }, legalName: { type: 'string' }, website: { type: 'string' } } } } },
   { type: 'function' as const, function: { name: 'list_disputes', description: 'List disputes', parameters: { type: 'object', properties: {} } } },
@@ -373,6 +375,8 @@ export async function executeTool(
       case 'update_billing': return await toolUpdateBilling(args, companyId);
       case 'generate_contract': return await toolGenerateContract(companyId);
       // Company Management
+      case 'draft_nda': return await toolDraftNDA(args, companyId);
+      case 'draft_msa': return await toolDraftMSA(args, companyId);
       case 'get_company_profile': return await toolGetCompanyProfile(companyId);
       case 'update_company_profile': return await toolUpdateCompanyProfile(args, companyId);
       case 'list_disputes': return await toolListDisputes(companyId);
@@ -1050,6 +1054,105 @@ async function toolGenerateContract(companyId: string): Promise<string> {
 // ============================================================
 // COMPANY MANAGEMENT (4 tools)
 // ============================================================
+
+async function toolDraftNDA(args: any, companyId: string): Promise<string> {
+  const company = await db.companyProfile.findUnique({ where: { id: companyId } });
+  const name = args.companyName || company?.companyName || 'Company';
+  const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  return `NON-DISCLOSURE AGREEMENT
+
+Effective Date: ${date}
+
+BETWEEN: ${name} ("Disclosing Party")
+AND: [Contractor Name] ("Receiving Party")
+
+1. CONFIDENTIAL INFORMATION
+${args.scope || 'All non-public information disclosed during the engagement, including but not limited to business plans, customer data, technical specifications, financial information, marketing strategies, and proprietary processes.'}
+
+2. OBLIGATIONS
+The Receiving Party agrees to:
+a) Hold all Confidential Information in strict confidence
+b) Not disclose to any third party without prior written consent
+c) Use Confidential Information solely for the purpose of performing assigned work
+d) Return or destroy all materials upon completion or termination
+
+3. EXCLUSIONS
+This agreement does not apply to information that:
+a) Is publicly available through no fault of the Receiving Party
+b) Was known prior to disclosure
+c) Is independently developed without reference to Confidential Information
+d) Is required to be disclosed by law
+
+4. DURATION
+This obligation survives for 2 years after the engagement ends.
+
+5. REMEDIES
+The Disclosing Party is entitled to injunctive relief and damages for breach.
+
+6. GOVERNING LAW
+This NDA is governed by the laws of the state where the Disclosing Party is incorporated.
+
+SIGNATURES
+${name}: _______________  Date: ___________
+Contractor: _______________  Date: ___________`;
+}
+
+async function toolDraftMSA(args: any, companyId: string): Promise<string> {
+  const company = await db.companyProfile.findUnique({ where: { id: companyId } });
+  const name = args.companyName || company?.companyName || 'Company';
+  const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  return `MASTER SERVICE AGREEMENT
+
+Effective Date: ${date}
+
+BETWEEN: ${name} ("Client")
+AND: Figwork, Inc. ("Platform")
+
+1. SERVICES
+The Platform provides a managed talent marketplace connecting the Client with independent contractors ("Contractors") for project-based work defined in individual Statements of Work ("SOWs").
+
+2. CONTRACTOR RELATIONSHIP
+Contractors are independent and not employees of either party. The Platform screens, verifies identity (KYC), and manages tax compliance (W-9/1099). The Client has no employment obligations to Contractors.
+
+3. SCOPE OF WORK
+Each task is defined as a Work Unit with specific deliverables, acceptance criteria, timeline, and price. Work Units are individually accepted through the Platform.
+
+4. PAYMENT
+a) The Client funds escrow before work begins
+b) Payment is released upon Client approval of deliverables
+c) Platform fee is deducted before Contractor payout
+d) If work is rejected and not revised, escrow is refunded to Client
+
+5. INTELLECTUAL PROPERTY
+All deliverables and work product become the exclusive property of the Client upon final payment. Contractors assign all rights, title, and interest.
+
+6. QUALITY ASSURANCE
+The Platform provides automated QA checks, proof-of-work verification, and milestone tracking. The Client retains final approval authority.
+
+7. CONFIDENTIALITY
+Both parties agree to protect confidential information. Contractors are bound by separate NDAs.
+
+8. LIMITATION OF LIABILITY
+The Platform's total liability is limited to fees paid in the preceding 12 months. The Platform is not liable for Contractor performance beyond its screening and QA systems.
+
+9. DISPUTE RESOLUTION
+Disputes between Client and Contractor are mediated by the Platform with a 72-hour SLA. Unresolved disputes proceed to binding arbitration.
+
+10. TERMINATION
+Either party may terminate with 30 days written notice. Active work units are completed or cancelled per their terms. Escrow is settled accordingly.
+
+11. INDEMNIFICATION
+Each party indemnifies the other against claims arising from their breach of this agreement.
+
+12. GOVERNING LAW
+This agreement is governed by the laws of Delaware, USA.
+
+SIGNATURES
+${name}: _______________  Date: ___________
+Figwork, Inc.: _______________  Date: ___________`;
+}
 
 async function toolGetCompanyProfile(companyId: string): Promise<string> {
   const c = await db.companyProfile.findUnique({ where: { id: companyId } });

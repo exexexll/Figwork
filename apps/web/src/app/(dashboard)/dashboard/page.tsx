@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
-import { Send, Plus, ChevronDown, X, GripVertical, Check } from 'lucide-react';
+import { Send, Plus, ChevronDown, X, GripVertical, Check, Paperclip, FileText } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -40,12 +40,13 @@ export default function DashboardPage() {
   // Panel state
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(420);
-  const [panelTab, setPanelTab] = useState<'overview' | 'execution' | 'financial'>('overview');
+  const [panelTab, setPanelTab] = useState<'overview' | 'execution' | 'financial' | 'legal'>('overview');
   const [sideData, setSideData] = useState<any>(null);
   const [selectedWU, setSelectedWU] = useState<any>(null);
   const [interviewDetail, setInterviewDetail] = useState<any>(null);
   const [pendingChanges, setPendingChanges] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -212,9 +213,32 @@ export default function DashboardPage() {
   async function send() {
     const text = input.trim();
     if (!text || streaming) return;
-    const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text };
+
+    // Read attached files as text and append to message
+    let fullMessage = text;
+    if (attachedFiles.length > 0) {
+      for (const file of attachedFiles) {
+        try {
+          if (file.type.startsWith('image/')) {
+            fullMessage += `\n\n[Attached image: ${file.name}]`;
+          } else {
+            const content = await file.text();
+            fullMessage += `\n\n--- ${file.name} ---\n${content.slice(0, 10000)}${content.length > 10000 ? '\n...(truncated)' : ''}`;
+          }
+        } catch {
+          fullMessage += `\n\n[Attached: ${file.name} — could not read]`;
+        }
+      }
+    }
+
+    const displayMsg = attachedFiles.length > 0
+      ? `${text}\n${attachedFiles.map(f => `📎 ${f.name}`).join('\n')}`
+      : text;
+
+    const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: displayMsg };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
+    setAttachedFiles([]);
     setStreaming(true);
     const aId = `a-${Date.now()}`;
     setMessages(prev => [...prev, { id: aId, role: 'assistant', content: '' }]);
@@ -224,7 +248,7 @@ export default function DashboardPage() {
       const res = await fetch(`${API_URL}/api/agent/chat`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationId, message: text }),
+        body: JSON.stringify({ conversationId, message: fullMessage }),
       });
       const reader = res.body?.getReader();
       if (!reader) return;
@@ -354,8 +378,41 @@ export default function DashboardPage() {
         </div>
 
         {/* Input */}
-        <div className="px-4 py-2.5 border-t border-slate-50 flex-shrink-0">
-          <div className="max-w-xl flex items-end gap-2">
+        <div className="px-4 py-3 border-t border-slate-100 flex-shrink-0">
+          {/* Attached files preview */}
+          {attachedFiles.length > 0 && (
+            <div className="max-w-xl flex flex-wrap gap-1.5 mb-2">
+              {attachedFiles.map((f, i) => (
+                <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-50 rounded text-[10px] text-slate-500">
+                  <FileText className="w-2.5 h-2.5" />
+                  {f.name.slice(0, 20)}{f.name.length > 20 ? '...' : ''}
+                  <button onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="text-slate-300 hover:text-slate-500 ml-0.5">
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="max-w-xl flex items-end gap-1.5">
+            <button
+              onClick={() => document.getElementById('chat-file-input')?.click()}
+              className="p-1.5 text-slate-300 hover:text-slate-500 flex-shrink-0"
+              title="Attach file"
+            >
+              <Paperclip className="w-3.5 h-3.5" />
+            </button>
+            <input
+              id="chat-file-input"
+              type="file"
+              multiple
+              className="hidden"
+              accept=".pdf,.doc,.docx,.txt,.csv,.png,.jpg,.jpeg,.webp"
+              onChange={e => {
+                const files = Array.from(e.target.files || []);
+                setAttachedFiles(prev => [...prev, ...files]);
+                e.target.value = '';
+              }}
+            />
             <textarea
               ref={inputRef}
               value={input}
@@ -366,7 +423,7 @@ export default function DashboardPage() {
               placeholder="What do you need done?"
               disabled={streaming}
             />
-            <button onClick={send} disabled={streaming || !input.trim()} className="p-1.5 text-slate-300 hover:text-slate-700 disabled:text-slate-200">
+            <button onClick={send} disabled={streaming || !input.trim()} className="p-1.5 text-slate-300 hover:text-slate-700 disabled:text-slate-200 flex-shrink-0">
               <Send className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -389,7 +446,7 @@ export default function DashboardPage() {
           {/* Tabs */}
           {selectedWU && (
             <div className="px-3 pt-1.5 flex gap-3 border-b border-slate-50 flex-shrink-0">
-              {['overview', 'execution', 'financial'].map(tab => (
+              {['overview', 'execution', 'financial', 'legal'].map(tab => (
                 <button key={tab} onClick={() => setPanelTab(tab as any)}
                   className={`pb-1.5 text-[11px] capitalize ${panelTab === tab ? 'text-slate-900 border-b border-slate-900' : 'text-slate-400'}`}>
                   {tab}
@@ -504,6 +561,77 @@ export default function DashboardPage() {
                         <div className="flex justify-between"><span className="text-slate-400">This month</span><span className="text-slate-700">${((sideData.billing.monthlySpendInCents || 0) / 100).toFixed(0)}</span></div>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Legal */}
+                {panelTab === 'legal' && (
+                  <div className="space-y-4">
+                    {/* MSA Status */}
+                    <div>
+                      <span className="text-slate-400 block mb-1">Master Service Agreement</span>
+                      <p className="text-slate-600">Covers all work through Figwork. IP transfers on payment. Independent contractor relationship. 72h dispute SLA.</p>
+                      <button
+                        onClick={() => setInput('Draft a master service agreement for this work unit')}
+                        className="text-slate-500 hover:text-slate-900 mt-1"
+                      >
+                        generate MSA →
+                      </button>
+                    </div>
+
+                    {/* SOW */}
+                    <div className="pt-2 border-t border-slate-50">
+                      <span className="text-slate-400 block mb-1">Statement of Work</span>
+                      <p className="text-slate-600">Task-specific contract with scope, deliverables, timeline, and payment terms.</p>
+                      <button
+                        onClick={() => setInput(`Draft a statement of work for "${selectedWU?.title}" — $${((selectedWU?.priceInCents || 0) / 100).toFixed(0)}, ${selectedWU?.deadlineHours}h deadline`)}
+                        className="text-slate-500 hover:text-slate-900 mt-1"
+                      >
+                        generate SOW →
+                      </button>
+                    </div>
+
+                    {/* NDA */}
+                    <div className="pt-2 border-t border-slate-50">
+                      <span className="text-slate-400 block mb-1">Non-Disclosure Agreement</span>
+                      <p className="text-slate-600">Protect confidential information shared with contractors.</p>
+                      <button
+                        onClick={() => setInput('Draft a non-disclosure agreement for contractors working on our tasks')}
+                        className="text-slate-500 hover:text-slate-900 mt-1"
+                      >
+                        generate NDA →
+                      </button>
+                    </div>
+
+                    {/* Compliance */}
+                    <div className="pt-2 border-t border-slate-50">
+                      <span className="text-slate-400 block mb-1">Compliance</span>
+                      <div className="space-y-1">
+                        <p className="text-slate-600">W-9/W-8BEN — collected from contractors at onboarding</p>
+                        <p className="text-slate-600">1099-NEC — auto-generated for earnings over $600/year</p>
+                        <p className="text-slate-600">IC classification — contractors are independent, not employees</p>
+                        <p className="text-slate-600">KYC — identity verified via Stripe Identity</p>
+                      </div>
+                    </div>
+
+                    {/* Contract actions */}
+                    <div className="pt-2 border-t border-slate-50">
+                      <span className="text-slate-400 block mb-1">Actions</span>
+                      <div className="space-y-1">
+                        <button
+                          onClick={() => setInput('Show me the company profile and contract status')}
+                          className="block text-slate-500 hover:text-slate-900"
+                        >
+                          check contract status →
+                        </button>
+                        <button
+                          onClick={() => setInput('Generate a DocuSign service agreement')}
+                          className="block text-slate-500 hover:text-slate-900"
+                        >
+                          generate DocuSign contract →
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
 
