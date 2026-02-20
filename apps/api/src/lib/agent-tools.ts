@@ -1443,12 +1443,13 @@ async function toolUpdateContract(args: any): Promise<string> {
 }
 
 async function toolActivateContract(args: any): Promise<string> {
+  if (!args.contractId) return 'Contract ID is required.';
   const a = await db.legalAgreement.findUnique({ where: { id: args.contractId } });
-  if (!a) return 'Contract not found.';
-  if (a.status === 'active') return `"${a.title}" is already active.`;
+  if (!a) return 'Contract not found. It may have been deleted.';
+  if (a.status === 'active') return `ALREADY ACTIVE: "${a.title}" is already active. No action needed. Do not call this again for this contract.`;
 
   await db.legalAgreement.update({ where: { id: args.contractId }, data: { status: 'active' } });
-  return `Activated "${a.title}". Contractors will be required to sign this during onboarding before they can start working on tasks linked to this agreement.`;
+  return `DONE: Activated "${a.title}". Contractors must sign it during onboarding. Do not call activate_contract again for this contract.`;
 }
 
 async function toolDeleteContract(args: any): Promise<string> {

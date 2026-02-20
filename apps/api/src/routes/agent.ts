@@ -273,11 +273,12 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     const openai = getOpenAIClient();
     let fullContent = '';
     let toolCallsAccumulated: any[] = [];
+    const toolCallLog = new Set<string>(); // Dedup: prevent calling same tool with same args
 
     try {
       // Agent loop — handles tool calls iteratively
       let loopMessages = [...openaiMessages];
-      let maxLoops = 8; // Allow more tool rounds for complex multi-step tasks
+      let maxLoops = 5; // Tool call rounds — prevent runaway loops
 
       while (maxLoops-- > 0) {
         const stream = await openai.chat.completions.create({
@@ -344,13 +345,22 @@ export default async function agentRoutes(fastify: FastifyInstance) {
             toolArgs = JSON.parse(tc.function.arguments);
           } catch {}
 
-          // Send human-readable status indicator (ChatGPT-style)
-          const statusLabel = getToolStatusLabel(toolName, toolArgs);
-          reply.raw.write(`data: ${JSON.stringify({ type: 'tool_status', label: statusLabel, name: toolName, phase: 'start' })}\n\n`);
+          // Dedup: skip if we already called this exact tool with these exact args
+          const callKey = `${toolName}:${JSON.stringify(toolArgs)}`;
+          let result: string;
+          if (toolCallLog.has(callKey)) {
+            result = `Already executed. Do not repeat this call.`;
+          } else {
+            toolCallLog.add(callKey);
 
-          const result = await executeTool(toolName, toolArgs, company.id, user.id);
+            // Send human-readable status indicator (ChatGPT-style)
+            const statusLabel = getToolStatusLabel(toolName, toolArgs);
+            reply.raw.write(`data: ${JSON.stringify({ type: 'tool_status', label: statusLabel, name: toolName, phase: 'start' })}\n\n`);
 
-          reply.raw.write(`data: ${JSON.stringify({ type: 'tool_status', label: statusLabel, name: toolName, phase: 'done' })}\n\n`);
+            result = await executeTool(toolName, toolArgs, company.id, user.id);
+
+            reply.raw.write(`data: ${JSON.stringify({ type: 'tool_status', label: statusLabel, name: toolName, phase: 'done' })}\n\n`);
+          }
           reply.raw.write(`data: ${JSON.stringify({ type: 'tool', name: toolName, status: 'done', result })}\n\n`);
 
           // Save tool result
