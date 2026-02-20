@@ -154,6 +154,10 @@ export default function OnboardingEditorPage() {
   const [preview, setPreview] = useState(false);
   const [editingBlock, setEditingBlock] = useState<string | null>(null);
 
+  // Get workUnitId from URL params
+  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const workUnitId = searchParams?.get('workUnitId') || null;
+
   useEffect(() => {
     loadData();
   }, []);
@@ -173,10 +177,17 @@ export default function OnboardingEditorPage() {
           companyName: profile.companyName || '',
           logoUrl: profile.website ? `https://logo.clearbit.com/${profile.website.replace(/https?:\/\//, '')}` : '',
         }));
-        // Load saved onboarding page data if exists
-        if (profile.address && typeof profile.address === 'object' && (profile.address as any).onboardingPage) {
-          const saved = (profile.address as any).onboardingPage;
-          if (saved.blocks?.length > 0) {
+        // Load saved onboarding page data
+        if (profile.address && typeof profile.address === 'object') {
+          // Try per-work-unit first, then fall back to global
+          const addr = profile.address as any;
+          let saved = null;
+          if (workUnitId && addr.onboardingPages?.[workUnitId]?.blocks) {
+            saved = addr.onboardingPages[workUnitId];
+          } else if (addr.onboardingPage?.blocks) {
+            saved = addr.onboardingPage;
+          }
+          if (saved?.blocks?.length > 0) {
             setPageData(prev => ({ ...prev, ...saved }));
           }
         }
@@ -200,19 +211,28 @@ export default function OnboardingEditorPage() {
       const profile = await res.json();
       const existingAddress = (typeof profile.address === 'object' && profile.address) || {};
 
+      const pageContent = {
+        accentColor: pageData.accentColor,
+        logoUrl: pageData.logoUrl,
+        blocks: pageData.blocks,
+      };
+
+      const updatedAddress = { ...existingAddress };
+
+      if (workUnitId) {
+        // Save per work unit
+        const pages = updatedAddress.onboardingPages || {};
+        pages[workUnitId] = { ...pages[workUnitId], ...pageContent };
+        updatedAddress.onboardingPages = pages;
+      } else {
+        // Save as global default
+        updatedAddress.onboardingPage = pageContent;
+      }
+
       await fetch(`${API_URL}/api/companies/me`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          address: {
-            ...existingAddress,
-            onboardingPage: {
-              accentColor: pageData.accentColor,
-              logoUrl: pageData.logoUrl,
-              blocks: pageData.blocks,
-            },
-          },
-        }),
+        body: JSON.stringify({ address: updatedAddress }),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);

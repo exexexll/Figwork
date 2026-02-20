@@ -493,8 +493,12 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     const company = await db.companyProfile.findUnique({ where: { id: wu.companyId } });
     if (!company) return reply.status(404).send({ error: 'Not found' });
 
-    const pages = ((company.address as any)?.onboardingPages || {});
+    const addr = (company.address as any) || {};
+    const pages = addr.onboardingPages || {};
     const page = pages[workUnitId] || {};
+
+    // Also check for visual editor blocks
+    const blocks = page.blocks || addr.onboardingPage?.blocks || [];
 
     return reply.send({
       welcome: page.welcome || '',
@@ -504,6 +508,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
       communicationChannel: page.communicationChannel || '',
       deliverableSubmissionMethod: page.deliverableSubmissionMethod || '',
       deliverableFormat: wu.deliverableFormat || [],
+      blocks, // Visual editor blocks for rich onboarding pages
     });
   });
 
