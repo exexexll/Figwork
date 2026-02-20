@@ -914,7 +914,7 @@ export default function DashboardPage() {
                         )}
 
                         {/* AI write button */}
-                        <button onClick={() => setInput(`Design a professional onboarding page for "${selectedWU?.title}". Create hero, instructions, checklist, and CTA blocks based on the task spec. Use the set_onboarding_blocks tool.`)}
+                        <button onClick={() => setInput(`Design a professional onboarding page for "${selectedWU?.title}". Use the set_onboarding tool with blocks array to create hero, text, checklist, and cta blocks. Call the tool directly — don't just describe what you'd create.`)}
                           className="w-full text-xs text-slate-600 border border-slate-200 rounded py-1.5 hover:bg-white transition-colors flex items-center justify-center gap-1.5">
                           <Sparkles className="w-3 h-3" /> AI design this page
                         </button>
