@@ -202,12 +202,12 @@ export default function OnboardingEditorPage() {
     setSaved(false);
     try {
       const token = await getToken();
-      if (!token) return;
+      if (!token) { alert('Not authenticated'); setSaving(false); return; }
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-      // Save as part of company profile address field (JSON)
       const res = await fetch(`${API_URL}/api/companies/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) { alert(`Failed to load profile: ${res.status}`); setSaving(false); return; }
       const profile = await res.json();
       const existingAddress = (typeof profile.address === 'object' && profile.address) || {};
 
@@ -229,14 +229,17 @@ export default function OnboardingEditorPage() {
         updatedAddress.onboardingPage = pageContent;
       }
 
-      await fetch(`${API_URL}/api/companies/me`, {
+      const saveRes = await fetch(`${API_URL}/api/companies/me`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ address: updatedAddress }),
       });
+      if (!saveRes.ok) { alert(`Save failed: ${saveRes.status}`); setSaving(false); return; }
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } catch (err) {
+    } catch (err: any) {
+      alert(`Error: ${err?.message || 'Unknown'}`);
+      console.error('Save error:', err);
       console.error('Save failed:', err);
     } finally {
       setSaving(false);

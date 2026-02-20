@@ -552,12 +552,12 @@ export default function DashboardPage() {
                   <div className="space-y-2.5">
                     <Row label="Title" value={getVal('title', selectedWU.title)} onChange={v => stageChange('title', v)} />
                     <SelectRow label="Status" value={getVal('status', selectedWU.status)} options={['draft', 'active', 'paused', 'cancelled']} onChange={v => stageChange('status', v)} />
-                    <Row label="Price ($)" value={`${((getVal('priceInCents', selectedWU.priceInCents)) / 100).toFixed(0)}`} onChange={v => stageChange('priceInCents', parseInt(v) * 100)} />
-                    <Row label="Deadline (h)" value={`${getVal('deadlineHours', selectedWU.deadlineHours)}`} onChange={v => stageChange('deadlineHours', parseInt(v))} />
+                    <Row label="Price ($)" value={`${((getVal('priceInCents', selectedWU.priceInCents)) / 100)}`} onChange={v => { const n = parseFloat(v); if (!isNaN(n)) stageChange('priceInCents', Math.round(n * 100)); }} />
+                    <Row label="Deadline (h)" value={`${getVal('deadlineHours', selectedWU.deadlineHours)}`} onChange={v => { const n = parseInt(v); if (!isNaN(n)) stageChange('deadlineHours', n); }} />
                     <SelectRow label="Tier" value={getVal('minTier', selectedWU.minTier)} options={['novice', 'pro', 'elite']} onChange={v => stageChange('minTier', v)} />
                     <SelectRow label="Assignment" value={getVal('assignmentMode', selectedWU.assignmentMode || 'auto')} options={['auto', 'manual']} onChange={v => stageChange('assignmentMode', v)} />
-                    <Row label="Complexity" value={`${getVal('complexityScore', selectedWU.complexityScore)}`} onChange={v => stageChange('complexityScore', parseInt(v))} />
-                    <Row label="Revision limit" value={`${getVal('revisionLimit', selectedWU.revisionLimit)}`} onChange={v => stageChange('revisionLimit', parseInt(v))} />
+                    <Row label="Complexity" value={`${getVal('complexityScore', selectedWU.complexityScore)}`} onChange={v => { const n = parseInt(v); if (!isNaN(n) && n >= 1 && n <= 5) stageChange('complexityScore', n); }} />
+                    <Row label="Revision limit" value={`${getVal('revisionLimit', selectedWU.revisionLimit)}`} onChange={v => { const n = parseInt(v); if (!isNaN(n) && n >= 0) stageChange('revisionLimit', n); }} />
                     <div>
                       <span className="text-slate-400">Skills</span>
                       <input value={getVal('requiredSkills', selectedWU.requiredSkills)?.join?.(', ') || ''} onChange={e => stageChange('requiredSkills', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
