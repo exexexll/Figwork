@@ -37,7 +37,7 @@ async function resolveId(table: string, shortId: string, companyId?: string): Pr
       : null;
     if (nameField) {
       const where: any = {};
-      if (companyId && ['workUnit', 'interviewTemplate', 'legalAgreement'].includes(table)) where.companyId = companyId;
+      if (companyId && table === 'workUnit') where.companyId = companyId;
       where[nameField] = { contains: shortId, mode: 'insensitive' };
       const match = await prismaTable.findFirst({ where, select: { id: true } });
       if (match) return match.id;
@@ -1449,11 +1449,19 @@ async function toolActivateContract(args: any): Promise<string> {
 }
 
 async function toolDeleteContract(args: any): Promise<string> {
+  if (!args.contractId) return 'Contract ID is required.';
   const a = await db.legalAgreement.findUnique({ where: { id: args.contractId } });
   if (!a) return 'Contract not found.';
   if (a.status === 'active') return `Cannot delete "${a.title}" — it's active. Archive it first.`;
-  await db.legalAgreement.delete({ where: { id: args.contractId } });
-  return `Deleted "${a.title}".`;
+  try {
+    // Clean up related records
+    await db.agreementSignature.deleteMany({ where: { agreementId: args.contractId } });
+    try { await (db as any).onboardingStep.deleteMany({ where: { agreementId: args.contractId } }); } catch {}
+    await db.legalAgreement.delete({ where: { id: args.contractId } });
+    return `Deleted "${a.title}".`;
+  } catch (err: any) {
+    return `Failed to delete "${a.title}": ${err.message?.slice(0, 100) || 'Unknown error'}`;
+  }
 }
 
 async function toolSetOnboarding(args: any, companyId: string): Promise<string> {
