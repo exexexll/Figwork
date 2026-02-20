@@ -9,17 +9,22 @@ import { PRICING_CONFIG, TIER_CONFIG } from '@figwork/shared';
 // Helper: resolve a potentially truncated ID to full UUID
 async function resolveId(table: string, shortId: string, companyId?: string): Promise<string | null> {
   if (!shortId) return null;
-  if (shortId.length >= 32) return shortId; // Already full UUID
+  // Check if it's already a valid UUID format (with or without dashes)
+  const uuidPattern = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+  if (uuidPattern.test(shortId)) return shortId;
+  // Check if it's a hex prefix (truncated UUID) — must be hex only
+  const hexPattern = /^[0-9a-f]+$/i;
+  if (!hexPattern.test(shortId)) return null; // Not a valid ID at all (slug, text, etc.)
   // Search by prefix
   const prismaTable = (db as any)[table];
-  if (!prismaTable) return shortId;
+  if (!prismaTable) return null;
   try {
     const where: any = {};
     if (companyId && ['workUnit'].includes(table)) where.companyId = companyId;
-    const records = await prismaTable.findMany({ where, select: { id: true }, take: 100 });
+    const records = await prismaTable.findMany({ where, select: { id: true }, take: 200 });
     const match = records.find((r: any) => r.id.startsWith(shortId));
-    return match?.id || shortId;
-  } catch { return shortId; }
+    return match?.id || null;
+  } catch { return null; }
 }
 
 // Tool definitions for OpenAI function calling
