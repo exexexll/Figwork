@@ -99,6 +99,7 @@ export default function DashboardPage() {
   const [pendingChanges, setPendingChanges] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [pastedImages, setPastedImages] = useState<{ data: string; name: string }[]>([]); // base64 images
   const [contracts, setContracts] = useState<any[]>([]);
   const [expandedContract, setExpandedContract] = useState<any>(null);
   const [editingContractContent, setEditingContractContent] = useState('');
@@ -470,14 +471,26 @@ export default function DashboardPage() {
       }
     }
 
-    const displayMsg = attachedFiles.length > 0
-      ? `${text}\n${attachedFiles.map(f => `📎 ${f.name}`).join('\n')}`
+    // Add pasted images as base64 for GPT-4o vision
+    if (pastedImages.length > 0) {
+      for (const img of pastedImages) {
+        fullMessage += `\n\n[IMAGE: ${img.name} — analyze this image and describe what you see]`;
+      }
+    }
+
+    const hasAttachments = attachedFiles.length > 0 || pastedImages.length > 0;
+    const displayMsg = hasAttachments
+      ? `${text}\n${attachedFiles.map(f => `📎 ${f.name}`).join('\n')}${pastedImages.map(img => `🖼 ${img.name}`).join('\n')}`
       : text;
+
+    // Build the message payload — include images for GPT-4o vision
+    const imagePayloads = pastedImages.map(img => img.data);
 
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: displayMsg };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setAttachedFiles([]);
+    setPastedImages([]);
     setStreaming(true);
     const aId = `a-${Date.now()}`;
     setMessages(prev => [...prev, { id: aId, role: 'assistant', content: '' }]);
@@ -487,7 +500,7 @@ export default function DashboardPage() {
       const res = await fetch(`${API_URL}/api/agent/chat`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationId, message: fullMessage }),
+        body: JSON.stringify({ conversationId, message: fullMessage, images: imagePayloads.length > 0 ? imagePayloads : undefined }),
       });
       const reader = res.body?.getReader();
       if (!reader) return;
@@ -632,14 +645,23 @@ export default function DashboardPage() {
 
         {/* Input */}
         <div className="px-6 py-3 border-t border-slate-200/40 flex-shrink-0">
-          {/* Attached files preview */}
-          {attachedFiles.length > 0 && (
+          {/* Attached files + pasted images preview */}
+          {(attachedFiles.length > 0 || pastedImages.length > 0) && (
             <div className="flex flex-wrap gap-1.5 mb-2">
               {attachedFiles.map((f, i) => (
-                <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-50 rounded text-[10px] text-slate-500">
+                <span key={`f-${i}`} className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-50 rounded text-[10px] text-slate-500">
                   <FileText className="w-2.5 h-2.5" />
                   {f.name.slice(0, 20)}{f.name.length > 20 ? '...' : ''}
                   <button onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} className="text-slate-300 hover:text-slate-500 ml-0.5">
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </span>
+              ))}
+              {pastedImages.map((img, i) => (
+                <span key={`img-${i}`} className="inline-flex items-center gap-1 px-1 py-0.5 bg-slate-50 rounded">
+                  <img src={img.data} alt="" className="h-6 w-6 rounded object-cover" />
+                  <span className="text-[10px] text-slate-500">image</span>
+                  <button onClick={() => setPastedImages(prev => prev.filter((_, j) => j !== i))} className="text-slate-300 hover:text-slate-500 ml-0.5">
                     <X className="w-2.5 h-2.5" />
                   </button>
                 </span>
@@ -671,6 +693,22 @@ export default function DashboardPage() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+              onPaste={e => {
+                const items = Array.from(e.clipboardData?.items || []);
+                for (const item of items) {
+                  if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    if (!file) continue;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const base64 = reader.result as string;
+                      setPastedImages(prev => [...prev, { data: base64, name: `pasted-${Date.now()}.png` }]);
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }
+              }}
               rows={1}
               className="flex-1 resize-none text-sm text-slate-900 placeholder:text-slate-300 border-0 border-b border-slate-200 focus:border-slate-400 focus:ring-0 bg-transparent py-1.5 outline-none"
               placeholder="What do you need done?"

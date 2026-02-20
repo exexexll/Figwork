@@ -152,9 +152,10 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     }
 
     const company = user.companyProfile;
-    const { conversationId, message } = request.body as {
+    const { conversationId, message, images } = request.body as {
       conversationId?: string;
       message: string;
+      images?: string[]; // base64 data URLs for vision
     };
 
     if (!message?.trim()) {
@@ -244,8 +245,16 @@ export default async function agentRoutes(fastify: FastifyInstance) {
       // Skip orphaned tool messages (handled above)
     }
 
-    // Add current message
-    openaiMessages.push({ role: 'user', content: message });
+    // Add current message — with images if present (GPT-4o vision)
+    if (images && images.length > 0) {
+      const contentParts: any[] = [{ type: 'text', text: message }];
+      for (const img of images) {
+        contentParts.push({ type: 'image_url', image_url: { url: img, detail: 'auto' } });
+      }
+      openaiMessages.push({ role: 'user', content: contentParts });
+    } else {
+      openaiMessages.push({ role: 'user', content: message });
+    }
 
     // Set up SSE streaming with CORS headers
     reply.raw.writeHead(200, {
