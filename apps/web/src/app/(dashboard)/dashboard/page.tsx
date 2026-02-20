@@ -49,6 +49,8 @@ export default function DashboardPage() {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [onboardWelcome, setOnboardWelcome] = useState('');
   const [onboardInstructions, setOnboardInstructions] = useState('');
+  const [onboardChecklist, setOnboardChecklist] = useState('');
+  const [onboardExamples, setOnboardExamples] = useState('');
   const [contracts, setContracts] = useState<any[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -213,7 +215,12 @@ export default function DashboardPage() {
         const profile = await res.json();
         const existing = (typeof profile.address === 'object' && profile.address) || {};
         const onboardingPages = existing.onboardingPages || {};
-        onboardingPages[selectedWU.id] = { welcome: onboardWelcome, instructions: onboardInstructions };
+        onboardingPages[selectedWU.id] = {
+          welcome: onboardWelcome,
+          instructions: onboardInstructions,
+          checklist: onboardChecklist.split('\n').filter(Boolean),
+          exampleWorkUrls: onboardExamples.split('\n').filter(Boolean),
+        };
         await fetch(`${API_URL}/api/companies/me`, {
           method: 'PUT',
           headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
@@ -234,10 +241,14 @@ export default function DashboardPage() {
         const page = pages[wuId] || {};
         setOnboardWelcome(page.welcome || '');
         setOnboardInstructions(page.instructions || '');
+        setOnboardChecklist((page.checklist || []).join('\n'));
+        setOnboardExamples((page.exampleWorkUrls || []).join('\n'));
       }
     } catch {
       setOnboardWelcome('');
       setOnboardInstructions('');
+      setOnboardChecklist('');
+      setOnboardExamples('');
     }
   }
 
@@ -616,7 +627,7 @@ export default function DashboardPage() {
                           />
                         </div>
                         <div>
-                          <span className="text-slate-400 text-[10px]">Instructions for contractor</span>
+                          <span className="text-slate-400 text-[10px]">Instructions</span>
                           <textarea
                             value={onboardInstructions}
                             onChange={e => setOnboardInstructions(e.target.value)}
@@ -625,16 +636,43 @@ export default function DashboardPage() {
                             placeholder="1. Read the spec carefully&#10;2. Check deliverable format&#10;3. Submit before deadline"
                           />
                         </div>
-                        <button onClick={saveOnboarding} className="text-slate-500 hover:text-slate-900 text-xs">
-                          save onboarding
-                        </button>
-                        <a
-                          href={`/dashboard/settings/onboarding-editor?workUnitId=${selectedWU?.id}`}
-                          target="_blank"
-                          className="block text-slate-400 hover:text-slate-700 text-xs"
-                        >
-                          open full editor →
-                        </a>
+                        <div>
+                          <span className="text-slate-400 text-[10px]">Checklist</span>
+                          <textarea
+                            value={onboardChecklist}
+                            onChange={e => setOnboardChecklist(e.target.value)}
+                            className="w-full text-xs text-slate-600 bg-transparent border border-slate-100 rounded p-1.5 focus:ring-0 focus:border-slate-300 resize-none mt-0.5"
+                            rows={2}
+                            placeholder="Read spec&#10;Review examples&#10;Check deadline"
+                          />
+                          <span className="text-slate-300 text-[10px]">one item per line</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[10px]">Example work / reference URLs</span>
+                          <textarea
+                            value={onboardExamples}
+                            onChange={e => setOnboardExamples(e.target.value)}
+                            className="w-full text-xs text-slate-600 bg-transparent border border-slate-100 rounded p-1.5 focus:ring-0 focus:border-slate-300 resize-none mt-0.5"
+                            rows={2}
+                            placeholder="https://example.com/sample-work.pdf&#10;https://drive.google.com/file/..."
+                          />
+                          <span className="text-slate-300 text-[10px]">one URL per line</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={saveOnboarding} className="text-slate-500 hover:text-slate-900 text-xs">
+                            save
+                          </button>
+                          <button onClick={() => setInput(`Update the onboarding page for "${selectedWU?.title}" — write a professional welcome message and detailed step-by-step instructions based on the task spec`)} className="text-slate-400 hover:text-slate-700 text-xs">
+                            AI write →
+                          </button>
+                          <a
+                            href={`/dashboard/settings/onboarding-editor?workUnitId=${selectedWU?.id}`}
+                            target="_blank"
+                            className="text-slate-400 hover:text-slate-700 text-xs"
+                          >
+                            full editor →
+                          </a>
+                        </div>
                       </div>
                     </div>
                   </div>

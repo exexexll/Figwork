@@ -317,6 +317,8 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'get_contract', description: 'Get a contract with its content and signature status', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'update_contract', description: 'Update a contract — bumps version, optionally requires re-signing', parameters: { type: 'object', properties: { contractId: { type: 'string' }, title: { type: 'string' }, content: { type: 'string' }, requiresResign: { type: 'boolean' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'activate_contract', description: 'Set a contract to active so contractors must sign it during onboarding', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
+  { type: 'function' as const, function: { name: 'set_onboarding', description: 'Set the contractor onboarding page for a work unit — welcome message, instructions, example work URLs, and reference files', parameters: { type: 'object', properties: { workUnitId: { type: 'string' }, welcome: { type: 'string', description: 'Welcome message shown to contractor' }, instructions: { type: 'string', description: 'Step-by-step instructions' }, exampleWorkUrls: { type: 'array', items: { type: 'string' }, description: 'URLs to example deliverables or reference files' }, checklist: { type: 'array', items: { type: 'string' }, description: 'Checklist items the contractor should complete' } }, required: ['workUnitId'] } } },
+  { type: 'function' as const, function: { name: 'get_onboarding', description: 'Get the current onboarding page config for a work unit', parameters: { type: 'object', properties: { workUnitId: { type: 'string' } }, required: ['workUnitId'] } } },
   { type: 'function' as const, function: { name: 'get_company_profile', description: 'View company profile details', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'update_company_profile', description: 'Edit company name, website, address', parameters: { type: 'object', properties: { companyName: { type: 'string' }, legalName: { type: 'string' }, website: { type: 'string' } } } } },
   { type: 'function' as const, function: { name: 'list_disputes', description: 'List disputes', parameters: { type: 'object', properties: {} } } },
@@ -412,6 +414,8 @@ export async function executeTool(
       case 'get_contract': return await toolGetContract(args);
       case 'update_contract': return await toolUpdateContract(args);
       case 'activate_contract': return await toolActivateContract(args);
+      case 'set_onboarding': return await toolSetOnboarding(args, companyId);
+      case 'get_onboarding': return await toolGetOnboarding(args, companyId);
       case 'get_company_profile': return await toolGetCompanyProfile(companyId);
       case 'update_company_profile': return await toolUpdateCompanyProfile(args, companyId);
       case 'list_disputes': return await toolListDisputes(companyId);
@@ -1274,6 +1278,45 @@ async function toolActivateContract(args: any): Promise<string> {
 
   await db.legalAgreement.update({ where: { id: args.contractId }, data: { status: 'active' } });
   return `Activated "${a.title}". Contractors will be required to sign this during onboarding before they can start working on tasks linked to this agreement.`;
+}
+
+async function toolSetOnboarding(args: any, companyId: string): Promise<string> {
+  const company = await db.companyProfile.findUnique({ where: { id: companyId } });
+  if (!company) return 'Company not found.';
+
+  const existing = (typeof company.address === 'object' && company.address) || {};
+  const onboardingPages = (existing as any).onboardingPages || {};
+
+  onboardingPages[args.workUnitId] = {
+    welcome: args.welcome || onboardingPages[args.workUnitId]?.welcome || '',
+    instructions: args.instructions || onboardingPages[args.workUnitId]?.instructions || '',
+    exampleWorkUrls: args.exampleWorkUrls || onboardingPages[args.workUnitId]?.exampleWorkUrls || [],
+    checklist: args.checklist || onboardingPages[args.workUnitId]?.checklist || [],
+  };
+
+  await db.companyProfile.update({
+    where: { id: companyId },
+    data: { address: { ...existing, onboardingPages } as any },
+  });
+
+  const page = onboardingPages[args.workUnitId];
+  return `Updated onboarding page. Welcome: ${page.welcome ? 'set' : 'empty'}. Instructions: ${page.instructions ? 'set' : 'empty'}. Examples: ${page.exampleWorkUrls?.length || 0} URLs. Checklist: ${page.checklist?.length || 0} items.`;
+}
+
+async function toolGetOnboarding(args: any, companyId: string): Promise<string> {
+  const company = await db.companyProfile.findUnique({ where: { id: companyId } });
+  if (!company) return 'Company not found.';
+
+  const pages = ((company.address as any)?.onboardingPages || {});
+  const page = pages[args.workUnitId];
+  if (!page) return 'No onboarding page configured for this work unit.';
+
+  let r = '';
+  if (page.welcome) r += `Welcome: ${page.welcome}\n`;
+  if (page.instructions) r += `Instructions: ${page.instructions}\n`;
+  if (page.exampleWorkUrls?.length) r += `Examples: ${page.exampleWorkUrls.join(', ')}\n`;
+  if (page.checklist?.length) r += `Checklist:\n${page.checklist.map((c: string, i: number) => `${i + 1}. ${c}`).join('\n')}`;
+  return r || 'Onboarding page is empty.';
 }
 
 async function toolGetCompanyProfile(companyId: string): Promise<string> {
