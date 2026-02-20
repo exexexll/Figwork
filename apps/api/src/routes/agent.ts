@@ -20,7 +20,9 @@ You have 57 tools. Use them. When creating or spending, confirm first. After any
 
 You CAN read files. When a user uploads a PDF, DOCX, or text file, its content is extracted and included in the message. Read and analyze it thoroughly — reference specific details from the document in your response.
 
-You have a web_search tool. Try it when the user asks about current market rates, industry standards, competitor info, or external data. If search returns "not configured," just use your training data and let the user know your answer is based on general knowledge.
+You have a web_search tool. Use it proactively when the user asks about current market rates, industry standards, competitor info, or anything needing current data. IMPORTANT: After getting search results, SYNTHESIZE them into a thoughtful answer — don't just dump the search results. Weave the data into your response naturally. If the user asks "what should I pay for X?", use the calculate_pricing tool which does web research + math automatically, then explain the recommendation in your own words with reasoning.
+
+You have a calculate_pricing tool. Use it whenever the user asks about pricing, budgeting, or cost for a task. It searches the web for market rates and calculates a price based on complexity, tier, deadline, and platform fees. After receiving the result, present the pricing recommendation conversationally — explain WHY this price makes sense given the market data and task requirements.
 
 ===== AGENT MODES =====
 
@@ -86,6 +88,39 @@ async function getCompanyContext(companyId: string) {
     pendingReviews: pendingReview,
     monthlySpend: monthlySpend._sum.amountInCents || 0,
   };
+}
+
+function getToolStatusLabel(toolName: string, args: any): string {
+  switch (toolName) {
+    case 'web_search': return `Searching "${(args.query || '').slice(0, 60)}"`;
+    case 'create_work_unit': return `Creating task "${(args.title || '').slice(0, 40)}"`;
+    case 'update_work_unit': return 'Updating task';
+    case 'list_work_units': return 'Looking up your tasks';
+    case 'get_work_unit': return 'Reading task details';
+    case 'list_candidates': return 'Finding matching contractors';
+    case 'assign_student': return 'Assigning contractor';
+    case 'review_submission': return 'Reviewing submission';
+    case 'fund_escrow': return 'Processing escrow payment';
+    case 'get_billing': return 'Checking financials';
+    case 'estimate_cost': return 'Calculating cost estimate';
+    case 'calculate_pricing': return 'Researching market rates';
+    case 'draft_sow': return 'Drafting statement of work';
+    case 'draft_nda': return 'Drafting NDA';
+    case 'draft_msa': return 'Drafting master service agreement';
+    case 'create_contract': return 'Creating contract';
+    case 'list_contracts': return 'Loading contracts';
+    case 'activate_contract': return 'Activating contract';
+    case 'set_onboarding': return 'Setting up onboarding';
+    case 'get_onboarding': return 'Loading onboarding page';
+    case 'get_monitoring_summary': return 'Checking operations status';
+    case 'list_all_executions': return 'Loading all executions';
+    case 'get_pow_logs': return 'Checking proof-of-work logs';
+    case 'request_pow_check': return 'Requesting check-in';
+    case 'get_company_profile': return 'Reading company profile';
+    case 'update_company_profile': return 'Updating company profile';
+    case 'get_execution_status': return 'Checking execution';
+    default: return `Running ${toolName.replace(/_/g, ' ')}`;
+  }
 }
 
 export default async function agentRoutes(fastify: FastifyInstance) {
@@ -286,11 +321,13 @@ export default async function agentRoutes(fastify: FastifyInstance) {
             toolArgs = JSON.parse(tc.function.arguments);
           } catch {}
 
-          // Send tool activity indicator
-          reply.raw.write(`data: ${JSON.stringify({ type: 'tool', name: toolName, status: 'running' })}\n\n`);
+          // Send human-readable status indicator (ChatGPT-style)
+          const statusLabel = getToolStatusLabel(toolName, toolArgs);
+          reply.raw.write(`data: ${JSON.stringify({ type: 'tool_status', label: statusLabel, name: toolName, phase: 'start' })}\n\n`);
 
           const result = await executeTool(toolName, toolArgs, company.id, user.id);
 
+          reply.raw.write(`data: ${JSON.stringify({ type: 'tool_status', label: statusLabel, name: toolName, phase: 'done' })}\n\n`);
           reply.raw.write(`data: ${JSON.stringify({ type: 'tool', name: toolName, status: 'done', result })}\n\n`);
 
           // Save tool result

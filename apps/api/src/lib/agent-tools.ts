@@ -108,6 +108,24 @@ export const TOOL_DEFINITIONS = [
   {
     type: 'function' as const,
     function: {
+      name: 'calculate_pricing',
+      description: 'Calculate a recommended price quote for a task. Uses web search to find market rates, then computes a price factoring in complexity, deadline, tier, and platform fees. Call this when the user asks what to pay for a task or wants a pricing recommendation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          taskDescription: { type: 'string', description: 'What the task involves' },
+          estimatedHours: { type: 'number', description: 'Estimated hours to complete' },
+          complexityScore: { type: 'number', description: '1-5 complexity rating' },
+          deadlineHours: { type: 'number', description: 'Deadline in hours' },
+          tier: { type: 'string', enum: ['novice', 'pro', 'elite'], description: 'Required contractor tier' },
+        },
+        required: ['taskDescription'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'draft_sow',
       description: 'Generate a statement of work / contract draft based on task details',
       parameters: {
@@ -359,6 +377,8 @@ export async function executeTool(
         return await toolUpdateWorkUnit(args, companyId);
       case 'estimate_cost':
         return await toolEstimateCost(args);
+      case 'calculate_pricing':
+        return await toolCalculatePricing(args);
       case 'draft_sow':
         return await toolDraftSOW(args);
       case 'list_work_units':
@@ -526,6 +546,63 @@ async function toolEstimateCost(args: any): Promise<string> {
   const fee = Math.round(subtotal * feePercent);
   const total = subtotal + fee;
   return `${taskCount} tasks at $${(pricePerTaskCents / 100).toFixed(2)} each = $${(subtotal / 100).toFixed(2)} subtotal + $${(fee / 100).toFixed(2)} platform fee (${feePercent * 100}%) = $${(total / 100).toFixed(2)} total.`;
+}
+
+async function toolCalculatePricing(args: any): Promise<string> {
+  const { taskDescription, estimatedHours, complexityScore, deadlineHours, tier } = args;
+  if (!taskDescription) return 'Task description is required.';
+
+  // Step 1: Web search for market rates
+  let marketData = '';
+  try {
+    const searchQuery = `freelance hourly rate ${taskDescription} 2024 2025`;
+    marketData = await toolWebSearch({ query: searchQuery });
+  } catch { marketData = 'Market data unavailable.'; }
+
+  // Step 2: Calculate base rate using internal logic
+  const hours = estimatedHours || 4;
+  const complexity = complexityScore || 3;
+  const deadline = deadlineHours || 48;
+  const selectedTier = tier || 'novice';
+
+  // Base hourly rates by tier
+  const tierRates: Record<string, number> = { novice: 1500, pro: 3000, elite: 6000 }; // cents
+  const baseHourly = tierRates[selectedTier] || 1500;
+
+  // Complexity multiplier: 1x at complexity 1, up to 2x at complexity 5
+  const complexityMultiplier = 1 + (complexity - 1) * 0.25;
+
+  // Urgency premium: tasks with <24h deadline get 1.5x, <12h get 2x
+  let urgencyMultiplier = 1;
+  if (deadline < 12) urgencyMultiplier = 2.0;
+  else if (deadline < 24) urgencyMultiplier = 1.5;
+  else if (deadline < 48) urgencyMultiplier = 1.2;
+
+  const subtotalCents = Math.round(baseHourly * hours * complexityMultiplier * urgencyMultiplier);
+  const feePercent = PRICING_CONFIG.platformFees[selectedTier as keyof typeof PRICING_CONFIG.platformFees] || 0.15;
+  const feeCents = Math.round(subtotalCents * feePercent);
+  const totalCents = subtotalCents + feeCents;
+
+  const lowRange = Math.round(subtotalCents * 0.8);
+  const highRange = Math.round(subtotalCents * 1.3);
+
+  return `PRICING ANALYSIS for: ${taskDescription}
+
+MARKET RESEARCH:
+${marketData.slice(0, 800)}
+
+CALCULATION:
+- Tier: ${selectedTier} (base $${(baseHourly / 100).toFixed(0)}/hr)
+- Estimated hours: ${hours}h
+- Complexity: ${complexity}/5 (${complexityMultiplier}x)
+- Urgency: ${deadline}h deadline (${urgencyMultiplier}x)
+- Subtotal: $${(subtotalCents / 100).toFixed(2)}
+- Platform fee (${(feePercent * 100).toFixed(0)}%): $${(feeCents / 100).toFixed(2)}
+- Total cost to you: $${(totalCents / 100).toFixed(2)}
+- Contractor receives: $${(subtotalCents / 100).toFixed(2)}
+
+RECOMMENDED RANGE: $${(lowRange / 100).toFixed(0)} – $${(highRange / 100).toFixed(0)}
+SUGGESTED PRICE: $${(subtotalCents / 100).toFixed(0)}`;
 }
 
 async function toolDraftSOW(args: any): Promise<string> {

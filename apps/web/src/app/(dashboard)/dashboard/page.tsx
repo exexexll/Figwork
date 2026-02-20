@@ -2,16 +2,18 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
-import { Send, Plus, ChevronDown, X, GripVertical, Check, Paperclip, FileText } from 'lucide-react';
+import { Send, Plus, ChevronDown, X, GripVertical, Check, Paperclip, FileText, Globe, Loader2, Sparkles, Calculator, Search, FileCheck } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'tool';
+  role: 'user' | 'assistant' | 'tool' | 'status';
   content: string | null;
   toolName?: string;
   toolResult?: string;
+  statusLabel?: string;
+  statusPhase?: 'start' | 'done';
 }
 
 interface Conversation {
@@ -39,7 +41,7 @@ export default function DashboardPage() {
 
   // Panel state
   const [panelOpen, setPanelOpen] = useState(true);
-  const [panelWidth, setPanelWidth] = useState(420);
+  const [panelWidth, setPanelWidth] = useState(480);
   const [panelTab, setPanelTab] = useState<'overview' | 'execution' | 'financial' | 'legal'>('overview');
   const [sideData, setSideData] = useState<any>(null);
   const [selectedWU, setSelectedWU] = useState<any>(null);
@@ -353,6 +355,19 @@ export default function DashboardPage() {
             const ev = JSON.parse(line.slice(6));
             if (ev.type === 'text') {
               setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: (m.content || '') + ev.content } : m));
+            } else if (ev.type === 'tool_status') {
+              const statusId = `status-${ev.name}-${Date.now()}`;
+              if (ev.phase === 'start') {
+                setMessages(prev => [...prev, { id: statusId, role: 'status', content: null, toolName: ev.name, statusLabel: ev.label, statusPhase: 'start' }]);
+              } else if (ev.phase === 'done') {
+                // Mark the last matching status as done
+                setMessages(prev => {
+                  const idx = [...prev].reverse().findIndex(m => m.role === 'status' && m.toolName === ev.name && m.statusPhase === 'start');
+                  if (idx === -1) return prev;
+                  const realIdx = prev.length - 1 - idx;
+                  return prev.map((m, i) => i === realIdx ? { ...m, statusPhase: 'done' } : m);
+                });
+              }
             } else if (ev.type === 'tool' && ev.status === 'done' && ev.result) {
               setMessages(prev => [...prev, { id: `t-${Date.now()}-${Math.random()}`, role: 'tool', content: null, toolName: ev.name, toolResult: ev.result }]);
             } else if (ev.type === 'done') {
@@ -377,7 +392,7 @@ export default function DashboardPage() {
     const onMove = (e: MouseEvent) => {
       if (!resizing.current) return;
       const w = window.innerWidth - e.clientX;
-      setPanelWidth(Math.max(320, Math.min(700, w)));
+      setPanelWidth(Math.max(380, Math.min(800, w)));
     };
     const onUp = () => { resizing.current = false; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
     window.addEventListener('mousemove', onMove);
@@ -447,9 +462,10 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 );
-                if (msg.role === 'tool') return (
-                  <p key={msg.id} className="text-xs text-slate-500 whitespace-pre-wrap pl-0.5">{msg.toolResult}</p>
+                if (msg.role === 'status') return (
+                  <ToolStatus key={msg.id} label={msg.statusLabel || ''} toolName={msg.toolName || ''} phase={msg.statusPhase || 'start'} />
                 );
+                if (msg.role === 'tool') return null; // tool results are hidden — agent synthesizes them
                 return (
                   <div key={msg.id} className="pl-0.5">
                     <p className="text-sm text-slate-900 whitespace-pre-wrap leading-relaxed">
@@ -524,32 +540,32 @@ export default function DashboardPage() {
 
       {/* ── Panel (right) ── */}
       {panelOpen && (
-        <div style={{ width: panelWidth }} className="border-l border-slate-200/40 bg-white/60 flex flex-col flex-shrink-0 overflow-hidden">
-          <div className="h-9 flex items-center justify-between px-3 border-b border-slate-50 flex-shrink-0">
-            <span className="text-[11px] text-slate-400 truncate">{selectedWU ? selectedWU.title : 'Work units'}</span>
-            <button onClick={() => setPanelOpen(false)} className="text-slate-300 hover:text-slate-500"><X className="w-3 h-3" /></button>
+        <div style={{ width: panelWidth }} className="border-l border-slate-200/50 bg-white/80 flex flex-col flex-shrink-0 overflow-hidden">
+          <div className="h-10 flex items-center justify-between px-4 border-b border-slate-100 flex-shrink-0">
+            <span className="text-xs font-medium text-slate-700 truncate">{selectedWU ? selectedWU.title : 'Work units'}</span>
+            <button onClick={() => setPanelOpen(false)} className="text-slate-300 hover:text-slate-500"><X className="w-3.5 h-3.5" /></button>
           </div>
 
           {/* Tabs */}
           {selectedWU && (
-            <div className="px-3 pt-1.5 flex gap-3 border-b border-slate-50 flex-shrink-0">
+            <div className="px-4 pt-2 flex gap-4 border-b border-slate-100 flex-shrink-0">
               {['overview', 'execution', 'financial', 'legal'].map(tab => (
                 <button key={tab} onClick={() => setPanelTab(tab as any)}
-                  className={`pb-1.5 text-[11px] capitalize ${panelTab === tab ? 'text-slate-900 border-b border-slate-900' : 'text-slate-400'}`}>
+                  className={`pb-2 text-xs capitalize ${panelTab === tab ? 'text-slate-900 border-b-2 border-slate-900' : 'text-slate-400 hover:text-slate-600'}`}>
                   {tab}
                 </button>
               ))}
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto px-3 py-2.5 text-xs">
+          <div className="flex-1 overflow-y-auto px-4 py-3 text-[13px]">
             {!sideData ? (
               <div className="py-8 text-center"><div className="animate-spin rounded-full h-3 w-3 border border-slate-200 border-t-slate-400 mx-auto" /></div>
             ) : selectedWU ? (
               <>
                 {/* Overview */}
                 {panelTab === 'overview' && (
-                  <div className="space-y-2.5">
+                  <div className="space-y-3">
                     <Row label="Title" value={getVal('title', selectedWU.title)} onChange={v => stageChange('title', v)} />
                     <SelectRow label="Status" value={getVal('status', selectedWU.status)} options={['draft', 'active', 'paused', 'cancelled']} onChange={v => stageChange('status', v)} />
                     <Row label="Price ($)" value={`${((getVal('priceInCents', selectedWU.priceInCents)) / 100)}`} onChange={v => { const n = parseFloat(v); if (!isNaN(n)) stageChange('priceInCents', Math.round(n * 100)); }} />
@@ -559,20 +575,20 @@ export default function DashboardPage() {
                     <Row label="Complexity" value={`${getVal('complexityScore', selectedWU.complexityScore)}`} onChange={v => { const n = parseInt(v); if (!isNaN(n) && n >= 1 && n <= 5) stageChange('complexityScore', n); }} />
                     <Row label="Revision limit" value={`${getVal('revisionLimit', selectedWU.revisionLimit)}`} onChange={v => { const n = parseInt(v); if (!isNaN(n) && n >= 0) stageChange('revisionLimit', n); }} />
                     <div>
-                      <span className="text-slate-400">Skills</span>
+                      <span className="text-slate-500 text-xs">Skills</span>
                       <input value={getVal('requiredSkills', selectedWU.requiredSkills)?.join?.(', ') || ''} onChange={e => stageChange('requiredSkills', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
-                        className="w-full text-[11px] text-slate-700 bg-transparent border-0 border-b border-slate-100 focus:border-slate-400 focus:ring-0 py-0.5 mt-0.5" />
+                        className="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-100 focus:border-slate-400 focus:ring-0 py-1 mt-0.5" />
                     </div>
                     <div>
-                      <span className="text-slate-400">Criteria</span>
+                      <span className="text-slate-500 text-xs">Criteria</span>
                       {(selectedWU.acceptanceCriteria || []).map((c: any, i: number) => (
-                        <p key={i} className="text-slate-600 py-0.5">{i + 1}. {c.criterion}</p>
+                        <p key={i} className="text-slate-700 py-0.5 text-xs">{i + 1}. {c.criterion}</p>
                       ))}
                     </div>
                     <div>
-                      <span className="text-slate-400">Spec</span>
+                      <span className="text-slate-500 text-xs">Spec</span>
                       <textarea value={getVal('spec', selectedWU.spec)} onChange={e => stageChange('spec', e.target.value)}
-                        className="w-full text-[11px] text-slate-600 bg-transparent border border-slate-100 rounded p-1.5 focus:ring-0 focus:border-slate-300 resize-none mt-0.5" rows={4} />
+                        className="w-full text-xs text-slate-700 bg-transparent border border-slate-100 rounded p-2 focus:ring-0 focus:border-slate-300 resize-none mt-0.5" rows={5} />
                     </div>
                   </div>
                 )}
@@ -581,21 +597,21 @@ export default function DashboardPage() {
                 {panelTab === 'execution' && (
                   <div className="space-y-3">
                     <div>
-                      <span className="text-slate-400 block mb-1">Interview</span>
+                      <span className="text-slate-500 text-xs block mb-1">Interview</span>
                       <select value={selectedWU.infoCollectionTemplateId || ''} onChange={e => {
                         const v = e.target.value || null;
                         stageChange('infoCollectionTemplateId', v);
                         if (v) loadInterview(v); else setInterviewDetail(null);
-                      }} className="w-full text-[11px] text-slate-700 bg-transparent border-0 border-b border-slate-100 focus:border-slate-400 focus:ring-0 py-0.5">
+                      }} className="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-100 focus:border-slate-400 focus:ring-0 py-1">
                         <option value="">None</option>
                         {(sideData.templates || []).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
                       </select>
                     </div>
 
                     {interviewDetail && (
-                      <div className="space-y-2 pt-1 border-t border-slate-50">
-                        <p className="text-slate-700">{interviewDetail.name} · {interviewDetail.timeLimitMinutes}min · {interviewDetail.mode}</p>
-                        <p className="text-slate-400">{interviewDetail.questions?.length || 0} questions · voice {interviewDetail.enableVoiceOutput ? 'on' : 'off'}</p>
+                      <div className="space-y-2 pt-2 border-t border-slate-100">
+                        <p className="text-xs text-slate-700">{interviewDetail.name} · {interviewDetail.timeLimitMinutes}min · {interviewDetail.mode}</p>
+                        <p className="text-xs text-slate-500">{interviewDetail.questions?.length || 0} questions · voice {interviewDetail.enableVoiceOutput ? 'on' : 'off'}</p>
                         {(interviewDetail.links || []).filter((l: any) => l.isActive).slice(0, 3).map((l: any) => (
                           <p key={l.id} className="text-slate-500 truncate">/interview/{l.token}</p>
                         ))}
@@ -604,24 +620,24 @@ export default function DashboardPage() {
                     )}
 
                     <div>
-                      <span className="text-slate-400 block mb-1">Applicants & Executions</span>
+                      <span className="text-slate-500 text-xs block mb-1">Applicants & Executions</span>
                       {selectedWU.executions?.length > 0 ? selectedWU.executions.map((e: any) => (
-                        <div key={e.id} className="py-1.5 border-b border-slate-50 last:border-0">
-                          <p className="text-slate-700">{e.student?.name || '?'} — {e.status}</p>
-                          {e.deadlineAt && <p className="text-slate-400">deadline {new Date(e.deadlineAt).toLocaleDateString()}</p>}
-                          {e.qualityScore != null && <p className="text-slate-400">quality {e.qualityScore}%</p>}
-                          <div className="flex gap-2 mt-0.5">
+                        <div key={e.id} className="py-2 border-b border-slate-100 last:border-0">
+                          <p className="text-xs text-slate-800 font-medium">{e.student?.name || '?'} <span className="font-normal text-slate-500">— {e.status}</span></p>
+                          {e.deadlineAt && <p className="text-xs text-slate-500 mt-0.5">deadline {new Date(e.deadlineAt).toLocaleDateString()}</p>}
+                          {e.qualityScore != null && <p className="text-xs text-slate-500">quality {e.qualityScore}%</p>}
+                          <div className="flex gap-2 mt-1">
                             {e.status === 'pending_review' && <>
-                              <button onClick={() => approveApp(e.id)} className="text-slate-500 hover:text-slate-900">assign</button>
-                              <button onClick={() => reviewExec(e.id, 'failed')} className="text-slate-400 hover:text-slate-600">reject</button>
+                              <button onClick={() => approveApp(e.id)} className="text-xs text-emerald-600 hover:text-emerald-800">assign</button>
+                              <button onClick={() => reviewExec(e.id, 'failed')} className="text-xs text-red-400 hover:text-red-600">reject</button>
                             </>}
                             {e.status === 'submitted' && <>
-                              <button onClick={() => reviewExec(e.id, 'approved')} className="text-slate-500 hover:text-slate-900">approve</button>
-                              <button onClick={() => reviewExec(e.id, 'revision_needed')} className="text-slate-500 hover:text-slate-900">revise</button>
-                              <button onClick={() => reviewExec(e.id, 'failed')} className="text-slate-400 hover:text-slate-600">reject</button>
+                              <button onClick={() => reviewExec(e.id, 'approved')} className="text-xs text-emerald-600 hover:text-emerald-800">approve</button>
+                              <button onClick={() => reviewExec(e.id, 'revision_needed')} className="text-xs text-amber-600 hover:text-amber-800">revise</button>
+                              <button onClick={() => reviewExec(e.id, 'failed')} className="text-xs text-red-400 hover:text-red-600">reject</button>
                             </>}
                             {['assigned', 'clocked_in'].includes(e.status) && (
-                              <button onClick={() => reviewExec(e.id, 'failed')} className="text-slate-400 hover:text-slate-600">cancel</button>
+                              <button onClick={() => reviewExec(e.id, 'failed')} className="text-xs text-red-400 hover:text-red-600">cancel</button>
                             )}
                           </div>
                         </div>
@@ -696,68 +712,65 @@ export default function DashboardPage() {
 
                 {/* Financial */}
                 {panelTab === 'financial' && (
-                  <div className="space-y-3">
-                    <div className="flex justify-between"><span className="text-slate-400">Price</span><span className="text-slate-700">${(selectedWU.priceInCents / 100).toFixed(2)}</span></div>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center"><span className="text-slate-500">Price</span><span className="text-slate-900 font-medium">${(selectedWU.priceInCents / 100).toFixed(2)}</span></div>
                     {selectedWU.escrow && <>
-                      <div className="flex justify-between"><span className="text-slate-400">Escrow</span><span className="text-slate-700">{selectedWU.escrow.status}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">Fee</span><span className="text-slate-700">${(selectedWU.escrow.platformFeeInCents / 100).toFixed(2)}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">Contractor gets</span><span className="text-slate-700">${(selectedWU.escrow.netAmountInCents / 100).toFixed(2)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-slate-500">Escrow</span><span className={`font-medium ${selectedWU.escrow.status === 'funded' ? 'text-emerald-600' : 'text-amber-600'}`}>{selectedWU.escrow.status}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-slate-500">Platform fee</span><span className="text-slate-700">${(selectedWU.escrow.platformFeeInCents / 100).toFixed(2)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-slate-500">Contractor receives</span><span className="text-slate-700">${(selectedWU.escrow.netAmountInCents / 100).toFixed(2)}</span></div>
                       {selectedWU.escrow.status === 'pending' && (
-                        <button onClick={fundAndPublish} className="text-slate-500 hover:text-slate-900">fund + publish</button>
+                        <button onClick={fundAndPublish} className="w-full mt-2 py-1.5 text-xs text-white bg-slate-900 rounded hover:bg-slate-800 transition-colors">Fund & Publish</button>
                       )}
                     </>}
                     {sideData.billing && (
-                      <div className="pt-2 border-t border-slate-50 space-y-1">
-                        <div className="flex justify-between"><span className="text-slate-400">Total escrow</span><span className="text-slate-700">${((sideData.billing.activeEscrowInCents || 0) / 100).toFixed(0)}</span></div>
-                        <div className="flex justify-between"><span className="text-slate-400">This month</span><span className="text-slate-700">${((sideData.billing.monthlySpendInCents || 0) / 100).toFixed(0)}</span></div>
+                      <div className="pt-3 border-t border-slate-100 space-y-2">
+                        <div className="flex justify-between items-center"><span className="text-slate-500">Total escrow</span><span className="text-slate-900 font-medium">${((sideData.billing.activeEscrowInCents || 0) / 100).toFixed(0)}</span></div>
+                        <div className="flex justify-between items-center"><span className="text-slate-500">This month</span><span className="text-slate-900 font-medium">${((sideData.billing.monthlySpendInCents || 0) / 100).toFixed(0)}</span></div>
                       </div>
                     )}
+                    <button onClick={() => setInput(`What should I pay for "${selectedWU?.title}"? Research market rates and give me a pricing recommendation.`)}
+                      className="w-full mt-1 py-1.5 text-xs text-slate-600 border border-slate-200 rounded hover:bg-white transition-colors flex items-center justify-center gap-1.5">
+                      <Calculator className="w-3 h-3" /> Get pricing recommendation
+                    </button>
                   </div>
                 )}
 
                 {/* Legal */}
                 {panelTab === 'legal' && (
                   <div className="space-y-4">
-                    {/* Active contracts */}
                     <div>
-                      <span className="text-slate-400 block mb-1">Contracts</span>
-                      <p className="text-slate-500 text-[10px] mb-2">Contractors must sign active contracts before starting work.</p>
+                      <span className="text-slate-500 text-xs block mb-1.5">Contracts</span>
+                      <p className="text-[11px] text-slate-400 mb-2">Contractors must sign active contracts before starting work.</p>
                       {contracts.length > 0 ? contracts.map((c: any) => (
-                        <div key={c.id} className="py-1.5 border-b border-slate-50 last:border-0">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="text-slate-700">{c.title}</p>
-                              <p className="text-slate-400">v{c.version} · {c.status} · {c._count?.signatures || 0} signed</p>
-                            </div>
-                          </div>
+                        <div key={c.id} className="py-2 border-b border-slate-100 last:border-0">
+                          <p className="text-xs text-slate-800">{c.title}</p>
+                          <p className="text-[11px] text-slate-500">v{c.version} · {c.status} · {c._count?.signatures || 0} signed</p>
                         </div>
-                      )) : <p className="text-slate-400">No contracts yet</p>}
+                      )) : <p className="text-xs text-slate-400">No contracts yet</p>}
                     </div>
 
-                    {/* Quick create */}
-                    <div className="pt-2 border-t border-slate-50 space-y-1.5">
+                    <div className="pt-3 border-t border-slate-100 space-y-2">
                       <button onClick={() => setInput(`Create a contractor agreement for "${selectedWU?.title}" that covers scope of work, deliverables, IP assignment, confidentiality, payment terms, and termination. Attach it to this work unit.`)}
-                        className="block text-slate-500 hover:text-slate-900">
+                        className="block text-xs text-slate-600 hover:text-slate-900">
                         create task-specific contract →
                       </button>
                       <button onClick={() => setInput('Create a general NDA for all contractors')}
-                        className="block text-slate-500 hover:text-slate-900">
+                        className="block text-xs text-slate-600 hover:text-slate-900">
                         create NDA →
                       </button>
                       <button onClick={() => setInput(`Draft a statement of work for "${selectedWU?.title}" — $${((selectedWU?.priceInCents || 0) / 100).toFixed(0)}, ${selectedWU?.deadlineHours}h`)}
-                        className="block text-slate-500 hover:text-slate-900">
+                        className="block text-xs text-slate-600 hover:text-slate-900">
                         draft SOW →
                       </button>
                       <button onClick={() => setInput('List all contracts and their signature status')}
-                        className="block text-slate-500 hover:text-slate-900">
+                        className="block text-xs text-slate-600 hover:text-slate-900">
                         view all contracts →
                       </button>
                     </div>
 
-                    {/* Compliance */}
-                    <div className="pt-2 border-t border-slate-50">
-                      <span className="text-slate-400 block mb-1">Compliance</span>
-                      <div className="space-y-0.5 text-slate-500">
+                    <div className="pt-3 border-t border-slate-100">
+                      <span className="text-slate-500 text-xs block mb-1.5">Compliance</span>
+                      <div className="space-y-1 text-xs text-slate-600">
                         <p>W-9 — collected at contractor onboarding</p>
                         <p>1099-NEC — auto-generated for $600+ earnings</p>
                         <p>KYC — Stripe Identity verification</p>
@@ -769,10 +782,10 @@ export default function DashboardPage() {
 
                 {/* Confirm button */}
                 {hasChanges && (
-                  <div className="pt-3 mt-3 border-t border-slate-50">
+                  <div className="pt-3 mt-3 border-t border-slate-100">
                     <button onClick={confirmChanges} disabled={saving}
-                      className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] text-slate-700 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-50">
-                      <Check className="w-3 h-3" />
+                      className="w-full flex items-center justify-center gap-1.5 py-2 text-xs text-white bg-slate-900 rounded hover:bg-slate-800 disabled:opacity-50 transition-colors">
+                      <Check className="w-3.5 h-3.5" />
                       {saving ? 'Saving...' : `Confirm ${Object.keys(pendingChanges).length} change${Object.keys(pendingChanges).length > 1 ? 's' : ''}`}
                     </button>
                   </div>
@@ -780,19 +793,19 @@ export default function DashboardPage() {
               </>
             ) : (
               /* Work unit list */
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {sideData.billing && (
-                  <div className="space-y-0.5">
-                    <div className="flex justify-between"><span className="text-slate-400">Escrow</span><span className="text-slate-700">${((sideData.billing.activeEscrowInCents || 0) / 100).toFixed(0)}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-400">Month</span><span className="text-slate-700">${((sideData.billing.monthlySpendInCents || 0) / 100).toFixed(0)}</span></div>
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between"><span className="text-slate-500 text-xs">Escrow</span><span className="text-slate-900 font-medium text-xs">${((sideData.billing.activeEscrowInCents || 0) / 100).toFixed(0)}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500 text-xs">This month</span><span className="text-slate-900 font-medium text-xs">${((sideData.billing.monthlySpendInCents || 0) / 100).toFixed(0)}</span></div>
                   </div>
                 )}
                 <div>
-                  <span className="text-slate-400 block mb-1">Work units</span>
+                  <span className="text-slate-500 text-xs block mb-2">Work units</span>
                   {(sideData.workUnits || []).map((wu: any) => (
-                    <button key={wu.id} onClick={() => selectWU(wu.id)} className="w-full text-left py-1 hover:bg-slate-50 rounded">
-                      <p className="text-slate-700 truncate">{wu.title}</p>
-                      <p className="text-slate-400">{wu.status} · ${(wu.priceInCents / 100).toFixed(0)}</p>
+                    <button key={wu.id} onClick={() => selectWU(wu.id)} className="w-full text-left py-2 px-2 hover:bg-white rounded-lg transition-colors">
+                      <p className="text-xs text-slate-800 truncate">{wu.title}</p>
+                      <p className="text-[11px] text-slate-500">{wu.status} · ${(wu.priceInCents / 100).toFixed(0)}</p>
                     </button>
                   ))}
                 </div>
@@ -801,8 +814,8 @@ export default function DashboardPage() {
           </div>
 
           {selectedWU && (
-            <div className="px-3 py-1.5 border-t border-slate-50 flex-shrink-0">
-              <button onClick={() => { setSelectedWU(null); setInterviewDetail(null); setPendingChanges({}); }} className="text-[11px] text-slate-400 hover:text-slate-600">← all</button>
+            <div className="px-4 py-2 border-t border-slate-100 flex-shrink-0">
+              <button onClick={() => { setSelectedWU(null); setInterviewDetail(null); setPendingChanges({}); }} className="text-xs text-slate-500 hover:text-slate-800">← all work units</button>
             </div>
           )}
         </div>
@@ -816,9 +829,9 @@ export default function DashboardPage() {
 function Row({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <div className="flex justify-between items-center gap-2">
-      <span className="text-slate-400 flex-shrink-0">{label}</span>
+      <span className="text-slate-500 text-xs flex-shrink-0">{label}</span>
       <input value={value} onChange={e => onChange(e.target.value)}
-        className="text-right text-[11px] text-slate-700 bg-transparent border-0 border-b border-slate-100 focus:border-slate-400 focus:ring-0 py-0 w-28 min-w-0" />
+        className="text-right text-xs text-slate-800 bg-transparent border-0 border-b border-slate-200 focus:border-slate-400 focus:ring-0 py-0.5 w-32 min-w-0" />
     </div>
   );
 }
@@ -826,11 +839,34 @@ function Row({ label, value, onChange }: { label: string; value: string; onChang
 function SelectRow({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
   return (
     <div className="flex justify-between items-center gap-2">
-      <span className="text-slate-400">{label}</span>
+      <span className="text-slate-500 text-xs">{label}</span>
       <select value={value} onChange={e => onChange(e.target.value)}
-        className="text-[11px] text-slate-700 bg-transparent border-0 border-b border-slate-100 focus:border-slate-400 focus:ring-0 py-0 pr-5">
+        className="text-xs text-slate-800 bg-transparent border-0 border-b border-slate-200 focus:border-slate-400 focus:ring-0 py-0.5 pr-5">
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
+    </div>
+  );
+}
+
+function ToolStatus({ label, toolName, phase }: { label: string; toolName: string; phase: 'start' | 'done' }) {
+  const icon = (() => {
+    if (toolName === 'web_search' || toolName === 'calculate_pricing') return <Globe className="w-3 h-3" />;
+    if (toolName.includes('list') || toolName.includes('get')) return <Search className="w-3 h-3" />;
+    if (toolName.includes('create') || toolName.includes('draft')) return <Sparkles className="w-3 h-3" />;
+    if (toolName.includes('estimate') || toolName.includes('billing') || toolName.includes('fund')) return <Calculator className="w-3 h-3" />;
+    if (toolName.includes('contract') || toolName.includes('review')) return <FileCheck className="w-3 h-3" />;
+    return <Loader2 className="w-3 h-3" />;
+  })();
+
+  return (
+    <div className="flex items-center gap-2 py-1 pl-0.5">
+      <span className={`${phase === 'start' ? 'text-violet-500 animate-pulse' : 'text-emerald-500'}`}>
+        {phase === 'start' ? <Loader2 className="w-3 h-3 animate-spin" /> : icon}
+      </span>
+      <span className={`text-xs ${phase === 'start' ? 'text-slate-500' : 'text-slate-400'}`}>
+        {label}{phase === 'start' ? '…' : ''}
+      </span>
+      {phase === 'done' && <span className="text-emerald-500 text-[10px]">✓</span>}
     </div>
   );
 }
