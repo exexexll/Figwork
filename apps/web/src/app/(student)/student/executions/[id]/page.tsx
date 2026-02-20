@@ -260,17 +260,72 @@ export default function ExecutionDetailPage() {
         </div>
       )}
 
-      {/* Pending Review Banner */}
+      {/* Pending Review — full approval waiting page */}
       {execution.status === 'pending_review' && (
-        <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-6">
-          <div className="flex items-start gap-3">
-            <Clock className="w-5 h-5 text-purple-500 mt-0.5 flex-shrink-0" />
+        <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+          <div className="text-center mb-6">
+            <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
+              <Clock className="w-6 h-6 text-purple-600" />
+            </div>
+            <h2 className="text-lg font-semibold text-slate-900">Application Under Review</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              The company is reviewing your application for this task.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {/* Task info */}
+            <div className="bg-slate-50 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-slate-800 mb-2">{execution.workUnit?.title}</h3>
+              <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+                <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" /> ${((execution.workUnit?.priceInCents || 0) / 100).toFixed(0)}</span>
+                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {execution.workUnit?.deadlineHours || 0}h deadline</span>
+              </div>
+            </div>
+
+            {/* What was submitted */}
             <div>
-              <p className="text-sm font-medium text-purple-800">Application Under Review</p>
-              <p className="text-xs text-purple-600 mt-0.5">
-                The company is reviewing your application. You'll be notified once they make a decision.
-                {execution.workUnit?.infoCollectionTemplateId && ' Your interview transcript has been shared with the company.'}
-              </p>
+              <h4 className="text-xs font-medium text-slate-600 mb-2">What's being reviewed</h4>
+              <div className="space-y-1.5 text-xs text-slate-500">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                  <span>Your profile and qualifications</span>
+                </div>
+                {execution.workUnit?.infoCollectionTemplateId && (
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                    <span>Screening interview completed</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                  <span>Skill match verified</span>
+                </div>
+              </div>
+            </div>
+
+            {/* What to expect */}
+            <div>
+              <h4 className="text-xs font-medium text-slate-600 mb-2">What happens next</h4>
+              <div className="space-y-1.5 text-xs text-slate-500">
+                <div className="flex items-start gap-2">
+                  <span className="w-4 h-4 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-[10px] font-medium flex-shrink-0 mt-0.5">1</span>
+                  <span>The company reviews your application and interview transcript</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="w-4 h-4 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-[10px] font-medium flex-shrink-0 mt-0.5">2</span>
+                  <span>If approved, you'll be assigned and can start working</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="w-4 h-4 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-[10px] font-medium flex-shrink-0 mt-0.5">3</span>
+                  <span>You'll receive a notification with next steps</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Applied timestamp */}
+            <div className="pt-3 border-t border-slate-100 text-xs text-slate-400 text-center">
+              Applied {new Date(execution.assignedAt || execution.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
             </div>
           </div>
         </div>
