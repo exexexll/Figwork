@@ -539,7 +539,7 @@ async function toolCreateWorkUnit(args: any, companyId: string): Promise<string>
     },
   });
 
-  return `Created work unit "${wu.title}" (${wu.id}) — $${(wu.priceInCents / 100).toFixed(2)}, ${wu.deadlineHours}h deadline. Status: draft. Fund escrow and set to active to publish.`;
+  return `Created "${wu.title}" (${wu.id.slice(0, 8)}) — $${(wu.priceInCents / 100).toFixed(2)}, ${wu.deadlineHours}h, draft.`;
 }
 
 async function toolUpdateWorkUnit(args: any, companyId: string): Promise<string> {
@@ -873,7 +873,7 @@ async function toolPublishWorkUnit(args: any, companyId: string): Promise<string
     data: { status: 'active', publishedAt: new Date() },
   });
 
-  return `Published "${wu.title}" — escrow funded ($${(wu.priceInCents / 100).toFixed(2)}), now visible to contractors.`;
+  return `Published "${wu.title}", $${(wu.priceInCents / 100).toFixed(2)} funded.`;
 }
 
 async function toolDeleteWorkUnit(args: any, companyId: string): Promise<string> {
@@ -1403,7 +1403,7 @@ async function toolCreateContract(args: any, companyId: string): Promise<string>
     }
   }
 
-  return `Created contract "${agreement.title}" (${agreement.id.slice(0, 8)}). Status: draft. Use activate_contract to make it live so contractors must sign it before starting work.`;
+  return `Created contract "${agreement.title}" (${agreement.id.slice(0, 8)}), draft.`;
 }
 
 async function toolListContracts(): Promise<string> {
@@ -1448,10 +1448,10 @@ async function toolActivateContract(args: any): Promise<string> {
   if (!args.contractId) return 'Contract ID is required.';
   const a = await db.legalAgreement.findUnique({ where: { id: args.contractId } });
   if (!a) return 'Contract not found. It may have been deleted.';
-  if (a.status === 'active') return `ALREADY ACTIVE: "${a.title}" is already active. No action needed. Do not call this again for this contract.`;
+  if (a.status === 'active') return `"${a.title}" already active.`;
 
   await db.legalAgreement.update({ where: { id: args.contractId }, data: { status: 'active' } });
-  return `DONE: Activated "${a.title}". Contractors must sign it during onboarding. Do not call activate_contract again for this contract.`;
+  return `Activated "${a.title}".`;
 }
 
 async function toolDeleteContract(args: any): Promise<string> {
