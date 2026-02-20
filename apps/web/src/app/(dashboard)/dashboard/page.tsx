@@ -771,8 +771,8 @@ export default function DashboardPage() {
                     <Row label="Deadline (h)" value={`${getVal('deadlineHours', selectedWU.deadlineHours)}`} onChange={v => { const n = parseInt(v); if (!isNaN(n)) stageChange('deadlineHours', n); }} />
                     <SelectRow label="Tier" value={getVal('minTier', selectedWU.minTier)} options={['novice', 'pro', 'elite']} onChange={v => stageChange('minTier', v)} />
                     <SelectRow label="Assignment" value={getVal('assignmentMode', selectedWU.assignmentMode || 'auto')} options={['auto', 'manual']} onChange={v => stageChange('assignmentMode', v)} />
-                    <Row label="Complexity" value={`${getVal('complexityScore', selectedWU.complexityScore)}`} onChange={v => { const n = parseInt(v); if (!isNaN(n) && n >= 1 && n <= 5) stageChange('complexityScore', n); }} />
-                    <Row label="Revision limit" value={`${getVal('revisionLimit', selectedWU.revisionLimit)}`} onChange={v => { const n = parseInt(v); if (!isNaN(n) && n >= 0) stageChange('revisionLimit', n); }} />
+                    <Row label="Complexity" value={`${getVal('complexityScore', selectedWU.complexityScore)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('complexityScore', Math.max(1, Math.min(5, n))); }} />
+                    <Row label="Revision limit" value={`${getVal('revisionLimit', selectedWU.revisionLimit)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('revisionLimit', Math.max(0, n)); }} />
                     <div>
                       <span className="text-slate-500 text-xs">Skills</span>
                       <input value={getVal('requiredSkills', selectedWU.requiredSkills)?.join?.(', ') || ''} onChange={e => stageChange('requiredSkills', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
@@ -1171,10 +1171,12 @@ export default function DashboardPage() {
 // ── Inline components ──
 
 function Row({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const [local, setLocal] = useState(value);
+  useEffect(() => { setLocal(value); }, [value]);
   return (
     <div className="flex justify-between items-center gap-2">
       <span className="text-slate-500 text-xs flex-shrink-0">{label}</span>
-      <input value={value} onChange={e => onChange(e.target.value)}
+      <input value={local} onChange={e => { setLocal(e.target.value); onChange(e.target.value); }}
         className="text-right text-xs text-slate-800 bg-transparent border-0 border-b border-slate-200 focus:border-slate-400 focus:ring-0 py-0.5 w-32 min-w-0" />
     </div>
   );
