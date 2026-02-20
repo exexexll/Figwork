@@ -290,6 +290,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     let fullContent = '';
     let toolCallsAccumulated: any[] = [];
     const toolCallCounts = new Map<string, number>();
+    const createdTitles = new Set<string>(); // Track created work unit titles to prevent duplicates
     let totalToolCalls = 0;
     const MAX_TOTAL_TOOL_CALLS = 50; // Safety cap — high enough to never block real work
     const MAX_IDENTICAL_CALLS = 3; // Stop if the same exact call repeats this many times
@@ -364,16 +365,32 @@ export default async function agentRoutes(fastify: FastifyInstance) {
             toolArgs = JSON.parse(tc.function.arguments);
           } catch {}
 
-          // Smart dedup: allow different calls, block identical repeats
+          // Dedup: block by title for create_work_unit, by exact args for others
           totalToolCalls++;
+          let result: string;
+
+          // Title-based dedup for create_work_unit and create_contract
+          if ((toolName === 'create_work_unit' || toolName === 'create_contract') && toolArgs.title) {
+            const titleKey = `${toolName}:${toolArgs.title.toLowerCase().trim()}`;
+            if (createdTitles.has(titleKey)) {
+              result = `"${toolArgs.title}" already created. Skip.`;
+              reply.raw.write(`data: ${JSON.stringify({ type: 'tool', name: toolName, status: 'done', result })}\n\n`);
+              await db.agentMessage.create({ data: { conversationId: conversation.id, role: 'tool', toolResults: { toolCallId: tc.id, content: result } } });
+              loopMessages.push({ role: 'tool', tool_call_id: tc.id, content: result });
+              toolCallsAccumulated.push({ id: tc.id, name: toolName, args: toolArgs, result });
+              continue;
+            }
+            createdTitles.add(titleKey);
+          }
+
           const callKey = `${toolName}:${JSON.stringify(toolArgs)}`;
           const repeatCount = toolCallCounts.get(callKey) || 0;
           toolCallCounts.set(callKey, repeatCount + 1);
-          let result: string;
+
           if (totalToolCalls > MAX_TOTAL_TOOL_CALLS) {
             result = `Safety limit reached. Summarize what you've done and ask the user.`;
           } else if (repeatCount >= MAX_IDENTICAL_CALLS) {
-            result = `This exact call has been made ${repeatCount} times already. Move on.`;
+            result = `Already done. Move on.`;
           } else {
 
             // Send human-readable status indicator (ChatGPT-style)
