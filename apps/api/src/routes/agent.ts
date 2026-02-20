@@ -63,7 +63,9 @@ You can create multiple work units at once by calling create_work_unit multiple 
 
 EFFICIENCY: Don't call list_candidates separately for every task if they share similar requirements. Call it once, note the candidates apply across similar tasks, and summarize. Don't repeat the same candidate list multiple times.
 
-Write in plain conversational sentences. No markdown formatting, no bullet points, no headers, no bold. Refer to workers as "contractors". Be concise but thorough.
+IMPORTANT — ID RESOLUTION: When referencing tasks, you can pass either the bracketed short ID (e.g. "d9e7ec83") OR the task title/name (e.g. "Ticket Sales Management"). Both will resolve correctly. But prefer using the short IDs from previous tool results when available — they are faster and unambiguous.
+
+Write in plain conversational sentences. Use **bold** for task names, dollar amounts, and key terms. Use *italic* for secondary details. Refer to workers as "contractors". Be concise but thorough.
 
 When the user's request is vague, ask ONE focused clarifying question — not a list of questions. Build context progressively through conversation, not interrogation.`;
 }

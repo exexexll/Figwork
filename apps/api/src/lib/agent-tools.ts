@@ -12,19 +12,39 @@ async function resolveId(table: string, shortId: string, companyId?: string): Pr
   // Check if it's already a valid UUID format (with or without dashes)
   const uuidPattern = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
   if (uuidPattern.test(shortId)) return shortId;
-  // Check if it's a hex prefix (truncated UUID) — must be hex only
-  const hexPattern = /^[0-9a-f]+$/i;
-  if (!hexPattern.test(shortId)) return null; // Not a valid ID at all (slug, text, etc.)
-  // Search by prefix
+
   const prismaTable = (db as any)[table];
   if (!prismaTable) return null;
+
+  // Check if it's a hex prefix (truncated UUID)
+  const hexPattern = /^[0-9a-f]+$/i;
+  if (hexPattern.test(shortId) && shortId.length >= 4) {
+    try {
+      const where: any = {};
+      if (companyId && ['workUnit'].includes(table)) where.companyId = companyId;
+      const records = await prismaTable.findMany({ where, select: { id: true }, take: 200 });
+      const match = records.find((r: any) => r.id.startsWith(shortId));
+      if (match) return match.id;
+    } catch {}
+  }
+
+  // Fallback: name/title-based fuzzy lookup for tables that have a title/name field
   try {
-    const where: any = {};
-    if (companyId && ['workUnit'].includes(table)) where.companyId = companyId;
-    const records = await prismaTable.findMany({ where, select: { id: true }, take: 200 });
-    const match = records.find((r: any) => r.id.startsWith(shortId));
-    return match?.id || null;
-  } catch { return null; }
+    const nameField = ['workUnit'].includes(table) ? 'title'
+      : ['interviewTemplate'].includes(table) ? 'name'
+      : ['legalAgreement'].includes(table) ? 'title'
+      : ['studentProfile'].includes(table) ? 'name'
+      : null;
+    if (nameField) {
+      const where: any = {};
+      if (companyId && ['workUnit', 'interviewTemplate', 'legalAgreement'].includes(table)) where.companyId = companyId;
+      where[nameField] = { contains: shortId, mode: 'insensitive' };
+      const match = await prismaTable.findFirst({ where, select: { id: true } });
+      if (match) return match.id;
+    }
+  } catch {}
+
+  return null;
 }
 
 // Tool definitions for OpenAI function calling
@@ -361,14 +381,22 @@ export async function executeTool(
   userId: string,
 ): Promise<string> {
   try {
-    // Resolve any truncated IDs to full UUIDs
-    if (args.workUnitId) args.workUnitId = await resolveId('workUnit', args.workUnitId, companyId);
-    if (args.executionId) args.executionId = await resolveId('execution', args.executionId);
-    if (args.templateId) args.templateId = await resolveId('interviewTemplate', args.templateId);
+    // Resolve any truncated IDs or names to full UUIDs
+    if (args.workUnitId) {
+      const orig = args.workUnitId;
+      args.workUnitId = await resolveId('workUnit', args.workUnitId, companyId);
+      if (!args.workUnitId) return `Could not find a work unit matching "${orig}". Use list_work_units to see available tasks.`;
+    }
+    if (args.executionId) {
+      const orig = args.executionId;
+      args.executionId = await resolveId('execution', args.executionId);
+      if (!args.executionId) return `Could not find an execution matching "${orig}". Use list_all_executions to see available executions.`;
+    }
+    if (args.templateId) args.templateId = await resolveId('interviewTemplate', args.templateId, companyId);
     if (args.questionId) args.questionId = await resolveId('question', args.questionId);
     if (args.sessionId) args.sessionId = await resolveId('interviewSession', args.sessionId);
     if (args.invoiceId) args.invoiceId = await resolveId('invoice', args.invoiceId);
-    if (args.contractId) args.contractId = await resolveId('legalAgreement', args.contractId);
+    if (args.contractId) args.contractId = await resolveId('legalAgreement', args.contractId, companyId);
     if (args.studentId) args.studentId = await resolveId('studentProfile', args.studentId);
     switch (toolName) {
       case 'create_work_unit':
