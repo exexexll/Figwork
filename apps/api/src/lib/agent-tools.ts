@@ -1697,25 +1697,69 @@ async function toolPlanAnalyze(args: any): Promise<string> {
 
 async function toolPlanDecompose(args: any): Promise<string> {
   try {
-    const raw = await gpt52(
-      `You are a work architect. Break the project into work units (max 8). Return JSON: {"workUnits":[{"title":"...","spec":"(1-2 paragraphs, concise but complete)","category":"...","requiredSkills":["..."],"deliverableFormat":["..."],"acceptanceCriteria":[{"criterion":"...","required":true}],"complexityScore":1-5,"minTier":"novice|pro|elite","deadlineHours":N,"revisionLimit":2,"assignmentMode":"auto"}]}`,
+    // First call: just get the list of task titles and categories
+    const listRaw = await gpt52(
+      `You are a work architect. Given a project brief, list ALL the work units needed. Return JSON: {"tasks":[{"title":"...","category":"...","complexityScore":1-5,"minTier":"novice|pro|elite"}]}. List every task, no limit.`,
       `Brief: ${args.brief}`,
-      6144
+      2048
     );
-    const match = raw.match(/\{[\s\S]*\}/);
-    return match?.[0] || raw;
+    const listMatch = listRaw.match(/\{[\s\S]*\}/);
+    let taskList: any[];
+    try { taskList = JSON.parse(listMatch?.[0] || listRaw).tasks || []; } catch { taskList = []; }
+
+    if (taskList.length === 0) return 'Could not identify tasks. Provide more detail.';
+
+    // Second call: generate detailed specs one batch at a time (5 per batch)
+    const allUnits: any[] = [];
+    for (let i = 0; i < taskList.length; i += 5) {
+      const batch = taskList.slice(i, i + 5);
+      const batchRaw = await gpt52(
+        `You are a work architect. Write detailed specs for these tasks. Return JSON: {"workUnits":[{"title":"...","spec":"(2-3 paragraphs: context, requirements, deliverables, quality standards)","category":"...","requiredSkills":["..."],"deliverableFormat":["..."],"acceptanceCriteria":[{"criterion":"...","required":true}],"complexityScore":1-5,"minTier":"novice|pro|elite","deadlineHours":N,"revisionLimit":2,"assignmentMode":"auto"}]}`,
+        `Tasks to detail:\n${batch.map((t: any, j: number) => `${i + j + 1}. ${t.title} (${t.category}, complexity ${t.complexityScore})`).join('\n')}`,
+        4096
+      );
+      const batchMatch = batchRaw.match(/\{[\s\S]*\}/);
+      try {
+        const parsed = JSON.parse(batchMatch?.[0] || batchRaw);
+        allUnits.push(...(parsed.workUnits || []));
+      } catch {}
+    }
+
+    return JSON.stringify({ workUnits: allUnits });
   } catch (e: any) { return `Decomposition failed: ${e.message?.slice(0, 100)}`; }
 }
 
 async function toolPlanPrice(args: any): Promise<string> {
   try {
-    const raw = await gpt52(
-      `You are a pricing expert. Price each work unit in cents. Return JSON: {"estimates":[{"title":"...","priceInCents":N,"reasoning":"...","estimatedHours":N}],"totalSubtotalCents":N,"platformFeesCents":N,"totalCents":N}. Platform fee is 15%.`,
-      `Work units: ${args.workUnits}`,
-      4096
-    );
-    const match = raw.match(/\{[\s\S]*\}/);
-    return match?.[0] || raw;
+    let workUnits: any[];
+    try { const p = JSON.parse(args.workUnits); workUnits = p.workUnits || p; } catch { workUnits = []; }
+    if (!Array.isArray(workUnits) || workUnits.length === 0) {
+      // Try pricing from raw text
+      const raw = await gpt52(
+        `You are a pricing expert. Price each work unit in cents. Return JSON: {"estimates":[{"title":"...","priceInCents":N,"reasoning":"...","estimatedHours":N}],"totalSubtotalCents":N,"platformFeesCents":N,"totalCents":N}. Platform fee is 15%.`,
+        `Work units: ${args.workUnits.slice(0, 3000)}`,
+        4096
+      );
+      const match = raw.match(/\{[\s\S]*\}/);
+      return match?.[0] || raw;
+    }
+
+    // Batch pricing: 5 at a time
+    const allEstimates: any[] = [];
+    for (let i = 0; i < workUnits.length; i += 5) {
+      const batch = workUnits.slice(i, i + 5);
+      const raw = await gpt52(
+        `You are a pricing expert. Price each work unit in cents. Return JSON: {"estimates":[{"title":"...","priceInCents":N,"reasoning":"...","estimatedHours":N}]}. Platform fee is 15%.`,
+        `Work units:\n${batch.map((wu: any, j: number) => `${i + j + 1}. ${wu.title} — ${wu.category || ''}, complexity ${wu.complexityScore || 3}, tier: ${wu.minTier || 'novice'}, deadline: ${wu.deadlineHours || 48}h`).join('\n')}`,
+        2048
+      );
+      const match = raw.match(/\{[\s\S]*\}/);
+      try { const p = JSON.parse(match?.[0] || raw); allEstimates.push(...(p.estimates || [])); } catch {}
+    }
+
+    const subtotal = allEstimates.reduce((s, e) => s + (e.priceInCents || 0), 0);
+    const fees = Math.round(subtotal * 0.15);
+    return JSON.stringify({ estimates: allEstimates, totalSubtotalCents: subtotal, platformFeesCents: fees, totalCents: subtotal + fees });
   } catch (e: any) { return `Pricing failed: ${e.message?.slice(0, 100)}`; }
 }
 
