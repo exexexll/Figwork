@@ -1329,38 +1329,45 @@ async function toolWebSearch(args: any): Promise<string> {
   if (!query) return 'No search query provided.';
 
   try {
-    // Use a simple search API — Google Custom Search or SerpAPI
-    // For now, use DuckDuckGo instant answer API (free, no key needed)
-    const encoded = encodeURIComponent(query);
-    const res = await fetch(`https://api.duckduckgo.com/?q=${encoded}&format=json&no_html=1&skip_disambig=1`);
-    if (!res.ok) return `Search failed (${res.status}).`;
+    // Use Brave Search API (free tier: 2000 queries/month, no credit card)
+    // Fallback to Serper if BRAVE_SEARCH_KEY not set, then to GPT knowledge
+    const braveKey = process.env.BRAVE_SEARCH_API_KEY;
+    const serperKey = process.env.SERPER_API_KEY;
 
-    const data = await res.json() as any;
-
-    let results = '';
-
-    // Abstract (main answer)
-    if (data.Abstract) {
-      results += data.Abstract + '\n';
-      if (data.AbstractSource) results += `Source: ${data.AbstractSource}\n`;
-    }
-
-    // Related topics
-    if (data.RelatedTopics?.length) {
-      results += '\nRelated:\n';
-      for (const topic of data.RelatedTopics.slice(0, 5)) {
-        if (topic.Text) results += `- ${topic.Text}\n`;
+    if (braveKey) {
+      const res = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5`, {
+        headers: { 'Accept': 'application/json', 'Accept-Encoding': 'gzip', 'X-Subscription-Token': braveKey },
+      });
+      if (res.ok) {
+        const data = await res.json() as any;
+        const results = (data.web?.results || []).slice(0, 5);
+        if (results.length > 0) {
+          return results.map((r: any) => `${r.title}\n${r.description}\n${r.url}`).join('\n\n').slice(0, 3000);
+        }
       }
     }
 
-    // If no results from instant answer, provide a helpful fallback
-    if (!results.trim()) {
-      results = `No instant results for "${query}". I can provide general guidance based on my training data. What specifically would you like to know?`;
+    if (serperKey) {
+      const res = await fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: { 'X-API-KEY': serperKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q: query, num: 5 }),
+      });
+      if (res.ok) {
+        const data = await res.json() as any;
+        const organic = (data.organic || []).slice(0, 5);
+        if (organic.length > 0) {
+          return organic.map((r: any) => `${r.title}\n${r.snippet}\n${r.link}`).join('\n\n').slice(0, 3000);
+        }
+        if (data.answerBox?.answer) return data.answerBox.answer;
+        if (data.answerBox?.snippet) return data.answerBox.snippet;
+      }
     }
 
-    return results.slice(0, 3000);
+    // No search API configured — use GPT's built-in knowledge
+    return `[Web search not configured — using built-in knowledge for "${query}"]. To enable web search, add BRAVE_SEARCH_API_KEY or SERPER_API_KEY to the environment. I'll answer based on my training data instead.`;
   } catch (err: any) {
-    return `Search error: ${err.message || 'Failed to search'}. I can still help based on my general knowledge.`;
+    return `Search error: ${err.message || 'Failed'}. Answering from training data instead.`;
   }
 }
 
