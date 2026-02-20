@@ -6,6 +6,22 @@
 import { db } from '@figwork/db';
 import { PRICING_CONFIG, TIER_CONFIG } from '@figwork/shared';
 
+// Helper: resolve a potentially truncated ID to full UUID
+async function resolveId(table: string, shortId: string, companyId?: string): Promise<string | null> {
+  if (!shortId) return null;
+  if (shortId.length >= 32) return shortId; // Already full UUID
+  // Search by prefix
+  const prismaTable = (db as any)[table];
+  if (!prismaTable) return shortId;
+  try {
+    const where: any = {};
+    if (companyId && ['workUnit'].includes(table)) where.companyId = companyId;
+    const records = await prismaTable.findMany({ where, select: { id: true }, take: 100 });
+    const match = records.find((r: any) => r.id.startsWith(shortId));
+    return match?.id || shortId;
+  } catch { return shortId; }
+}
+
 // Tool definitions for OpenAI function calling
 export const TOOL_DEFINITIONS = [
   {
@@ -315,6 +331,15 @@ export async function executeTool(
   userId: string,
 ): Promise<string> {
   try {
+    // Resolve any truncated IDs to full UUIDs
+    if (args.workUnitId) args.workUnitId = await resolveId('workUnit', args.workUnitId, companyId);
+    if (args.executionId) args.executionId = await resolveId('execution', args.executionId);
+    if (args.templateId) args.templateId = await resolveId('interviewTemplate', args.templateId);
+    if (args.questionId) args.questionId = await resolveId('question', args.questionId);
+    if (args.sessionId) args.sessionId = await resolveId('interviewSession', args.sessionId);
+    if (args.invoiceId) args.invoiceId = await resolveId('invoice', args.invoiceId);
+    if (args.contractId) args.contractId = await resolveId('legalAgreement', args.contractId);
+    if (args.studentId) args.studentId = await resolveId('studentProfile', args.studentId);
     switch (toolName) {
       case 'create_work_unit':
         return await toolCreateWorkUnit(args, companyId);
@@ -670,10 +695,7 @@ async function toolGetBilling(companyId: string): Promise<string> {
 }
 
 async function toolPublishWorkUnit(args: any, companyId: string): Promise<string> {
-  const wu = await db.workUnit.findFirst({
-    where: { id: args.workUnitId, companyId },
-    include: { escrow: true },
-  });
+  const wu = await db.workUnit.findFirst({ where: { id: args.workUnitId, companyId }, include: { escrow: true } });
   if (!wu) return 'Work unit not found.';
   if (wu.status === 'active') return `"${wu.title}" is already active.`;
 
