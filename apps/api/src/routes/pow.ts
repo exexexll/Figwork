@@ -335,7 +335,7 @@ async function analyzePOW(
     const openai = getOpenAIClient();
     
     const workAnalysis = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5.2',
       messages: [
         {
           role: 'user',
@@ -367,7 +367,7 @@ async function analyzePOW(
 
     if (student.kycSelfieUrl) {
       const faceAnalysis = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'gpt-5.2',
         messages: [
           {
             role: 'user',

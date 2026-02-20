@@ -135,7 +135,7 @@ async function analyzePOW(data: POWAnalyzeJobData) {
     
     try {
       const workAnalysis = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'gpt-5.2',
         messages: [
           {
             role: 'user',
@@ -178,7 +178,7 @@ async function analyzePOW(data: POWAnalyzeJobData) {
     if (pow.student.kycSelfieUrl) {
       try {
         const faceAnalysis = await openai.chat.completions.create({
-          model: 'gpt-4o',
+          model: 'gpt-5.2',
           messages: [
             {
               role: 'user',

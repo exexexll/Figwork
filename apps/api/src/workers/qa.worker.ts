@@ -144,7 +144,7 @@ async function runQAChecks(job: Job<QAJobData>) {
       const openai = getOpenAIClient();
       
       const contentAnalysis = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.2',
         messages: [
           {
             role: 'system',

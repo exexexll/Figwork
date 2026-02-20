@@ -124,15 +124,12 @@ export const LATENCY_ALERTS = {
   TOTAL_TURN: 1000,
 } as const;
 
-// OpenAI configuration - Optimized for <100ms latency
+// OpenAI configuration — GPT-5.2 across all agents
 export const OPENAI_CONFIG = {
-  // Use gpt-4o-mini for controller (2-3x faster, still accurate for decisions)
-  MODEL_CONTROLLER: 'gpt-4o-mini',
-  // Use gpt-4o-mini for interviewer too (very fast, good enough for conversational)
-  MODEL_INTERVIEWER: 'gpt-4o-mini',
-  // Keep gpt-4o for complex tasks that need more reasoning
-  MODEL_FULL: 'gpt-4o',
-  REALTIME_MODEL: 'gpt-4o-realtime-preview-2024-12-17',
+  MODEL_CONTROLLER: 'gpt-5.2',
+  MODEL_INTERVIEWER: 'gpt-5.2',
+  MODEL_FULL: 'gpt-5.2',
+  REALTIME_MODEL: 'gpt-4o-realtime-preview-2024-12-17', // Realtime keeps existing model until 5.2 realtime is available
   EMBEDDING_MODEL: 'text-embedding-3-small',
   EMBEDDING_DIMENSIONS: 1536,
   // Tokens - balance between speed and quality

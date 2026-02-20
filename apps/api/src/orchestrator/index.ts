@@ -139,7 +139,7 @@ export async function processOrchestrator(socket: any, sessionToken: string): Pr
   let controllerOutput: ControllerOutput;
 
   try {
-    // Use gpt-4o-mini for fast decision making (~150ms vs ~500ms for gpt-4o)
+    // GPT-5.2 for decision making
     const controllerResponse = await openai.chat.completions.create({
       model: OPENAI_CONFIG.MODEL_CONTROLLER,
       messages: [
@@ -364,7 +364,7 @@ async function streamInterviewerResponse(
   let fullMessage = '';
 
   try {
-    // Use gpt-4o-mini for ultra-fast streaming (~100ms to first token)
+    // GPT-5.2 for streaming
     const stream = await openai.chat.completions.create({
       model: OPENAI_CONFIG.MODEL_INTERVIEWER,
       messages: [
@@ -515,9 +515,9 @@ IMPORTANT: You have access to documents the visitor shared. Use this information
   let fullMessage = '';
 
   try {
-    // Use gpt-4o-mini for ultra-fast streaming
+    // GPT-5.2 for streaming
     const stream = await openai.chat.completions.create({
-      model: OPENAI_CONFIG.MODEL_INTERVIEWER, // Same fast model for inquiry
+      model: OPENAI_CONFIG.MODEL_INTERVIEWER,
       messages,
       stream: true,
       max_tokens: 150, // Shorter for faster responses

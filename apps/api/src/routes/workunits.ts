@@ -113,7 +113,7 @@ Return JSON: {
 }`;
 
         const response = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: 'gpt-5.2',
           messages: [{ role: 'user', content: clarityPrompt }],
           response_format: { type: 'json_object' },
           temperature: 0.3,
@@ -289,7 +289,7 @@ Return JSON: {
         try {
           const openai = getOpenAIClient();
           const response = await openai.chat.completions.create({
-            model: 'gpt-4o-mini',
+            model: 'gpt-5.2',
             messages: [{
               role: 'user',
               content: `Rate clarity 1-5: "${updates.spec}". Return JSON: {"score": number, "issues": []}`
