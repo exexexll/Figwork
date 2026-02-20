@@ -20,6 +20,14 @@ interface Conversation {
   updatedAt: string;
 }
 
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
+  return `${Math.floor(diff / 86400000)}d`;
+}
+
 export default function DashboardPage() {
   const { getToken } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -168,7 +176,42 @@ export default function DashboardPage() {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirm: true }),
       });
-      selectWorkUnit(selectedWorkUnit.id);
+      await selectWorkUnit(selectedWorkUnit.id);
+    } catch {}
+  }
+
+  async function publishFromPanel() {
+    if (!selectedWorkUnit) return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      // Fund escrow first
+      await fetch(`${API_URL}/api/workunits/${selectedWorkUnit.id}/fund-escrow`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      });
+      // Then activate
+      await fetch(`${API_URL}/api/workunits/${selectedWorkUnit.id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'active' }),
+      });
+      await selectWorkUnit(selectedWorkUnit.id);
+    } catch {}
+  }
+
+  async function cancelExecutionFromPanel(executionId: string) {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      // Cancel by updating status
+      await fetch(`${API_URL}/api/executions/${executionId}/review`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verdict: 'failed', feedback: 'Cancelled by company' }),
+      });
+      if (selectedWorkUnit) await selectWorkUnit(selectedWorkUnit.id);
     } catch {}
   }
 
@@ -298,11 +341,12 @@ export default function DashboardPage() {
                   <div key={c.id} className="flex items-center group">
                     <button
                       onClick={() => loadConversation(c.id)}
-                      className={`flex-1 text-left px-3 py-2 text-xs hover:bg-slate-50 truncate ${
+                      className={`flex-1 text-left px-3 py-2 hover:bg-slate-50 truncate ${
                         c.id === conversationId ? 'text-slate-900' : 'text-slate-500'
                       }`}
                     >
-                      {c.title || 'Untitled'}
+                      <span className="text-xs block truncate">{c.title || 'Untitled'}</span>
+                      <span className="text-[10px] text-slate-300">{timeAgo(c.updatedAt)}</span>
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); deleteConversation(c.id); }}
@@ -466,7 +510,7 @@ export default function DashboardPage() {
                         <option value="cancelled">cancelled</option>
                       </select>
                     </div>
-                    <EditableField label="Price" value={`${(selectedWorkUnit.priceInCents / 100).toFixed(0)}`} onSave={v => updateWorkUnitField('priceInCents', parseInt(v) * 100)} type="number" />
+                    <EditableField label="Price ($)" value={`${(selectedWorkUnit.priceInCents / 100).toFixed(0)}`} onSave={v => updateWorkUnitField('priceInCents', parseInt(v) * 100)} />
                     <EditableField label="Deadline (hours)" value={`${selectedWorkUnit.deadlineHours}`} onSave={v => updateWorkUnitField('deadlineHours', parseInt(v))} type="number" />
                     <div className="flex justify-between items-center">
                       <span className="text-slate-400 text-xs">Min tier</span>
@@ -517,6 +561,16 @@ export default function DashboardPage() {
                         onSave={tags => updateWorkUnitField('deliverableFormat', tags)}
                       />
                     </div>
+                    {/* Acceptance criteria */}
+                    {selectedWorkUnit.acceptanceCriteria && (
+                      <div>
+                        <span className="text-slate-400 text-xs block mb-1">Acceptance criteria</span>
+                        {(Array.isArray(selectedWorkUnit.acceptanceCriteria) ? selectedWorkUnit.acceptanceCriteria : []).map((c: any, i: number) => (
+                          <p key={i} className="text-xs text-slate-600 py-0.5">{i + 1}. {c.criterion}{c.required ? '' : ' (optional)'}</p>
+                        ))}
+                      </div>
+                    )}
+
                     <div>
                       <span className="text-slate-400 text-xs block mb-1">Spec</span>
                       <EditableTextArea
@@ -565,6 +619,9 @@ export default function DashboardPage() {
                                 <button onClick={() => reviewFromPanel(e.id, 'failed')} className="text-slate-500 hover:text-slate-900">reject</button>
                               </div>
                             )}
+                            {['assigned', 'clocked_in', 'revision_needed'].includes(e.status) && (
+                              <button onClick={() => cancelExecutionFromPanel(e.id)} className="text-slate-400 hover:text-slate-600 mt-1">cancel</button>
+                            )}
                             {e.qualityScore != null && <p className="text-slate-400">quality: {e.qualityScore}%</p>}
                           </div>
                         ))
@@ -591,10 +648,7 @@ export default function DashboardPage() {
                           {selectedWorkUnit.escrow.status === 'pending' && (
                             <div className="flex gap-3 mt-1.5">
                               <button onClick={fundEscrowFromPanel} className="text-slate-500 hover:text-slate-900">fund escrow</button>
-                              <button onClick={async () => {
-                                await fundEscrowFromPanel();
-                                await updateWorkUnitField('status', 'active');
-                              }} className="text-slate-500 hover:text-slate-900">fund + publish</button>
+                              <button onClick={publishFromPanel} className="text-slate-500 hover:text-slate-900">fund + publish</button>
                             </div>
                           )}
                         </div>
