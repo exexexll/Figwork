@@ -1697,17 +1697,43 @@ async function toolPlanAnalyze(args: any): Promise<string> {
 
 async function toolPlanDecompose(args: any): Promise<string> {
   try {
-    // First call: just get the list of task titles and categories
-    const listRaw = await gpt52(
-      `You are a work architect. Given a project brief, list ALL the work units needed. Return JSON: {"tasks":[{"title":"...","category":"...","complexityScore":1-5,"minTier":"novice|pro|elite"}]}. List every task, no limit.`,
-      `Brief: ${args.brief}`,
-      2048
-    );
-    const listMatch = listRaw.match(/\{[\s\S]*\}/);
-    let taskList: any[];
-    try { taskList = JSON.parse(listMatch?.[0] || listRaw).tasks || []; } catch { taskList = []; }
+    // Accept brief as JSON string or plain text — be resilient
+    const briefText = typeof args.brief === 'string' ? args.brief : JSON.stringify(args.brief);
 
-    if (taskList.length === 0) return 'Could not identify tasks. Provide more detail.';
+    // First call: get the list of task titles
+    const listRaw = await gpt52(
+      `You are a work architect. Given a project description, list ALL the individual tasks/roles/work units needed to execute it. Return JSON: {"tasks":[{"title":"...","category":"writing|design|research|data-entry|development|marketing|operations","complexityScore":1-5,"minTier":"novice|pro|elite"}]}. Be thorough — list every task needed.`,
+      briefText.slice(0, 4000),
+      3072
+    );
+
+    let taskList: any[];
+    try {
+      const listMatch = listRaw.match(/\{[\s\S]*\}/);
+      const parsed = JSON.parse(listMatch?.[0] || '{}');
+      taskList = parsed.tasks || parsed.workUnits || [];
+    } catch {
+      // Fallback: try to extract any array
+      try {
+        const arrMatch = listRaw.match(/\[[\s\S]*\]/);
+        taskList = JSON.parse(arrMatch?.[0] || '[]');
+      } catch { taskList = []; }
+    }
+
+    if (taskList.length === 0) {
+      // Last resort: ask GPT to just list task names
+      const fallback = await gpt52(
+        `List the individual tasks/roles needed for this project. Return JSON: {"tasks":[{"title":"...","category":"general","complexityScore":3,"minTier":"novice"}]}`,
+        `Project: ${briefText.slice(0, 2000)}`,
+        2048
+      );
+      try {
+        const m = fallback.match(/\{[\s\S]*\}/);
+        taskList = JSON.parse(m?.[0] || '{}').tasks || [];
+      } catch { return `Could not identify tasks from: "${briefText.slice(0, 100)}...". Try describing specific deliverables.`; }
+    }
+
+    if (taskList.length === 0) return `No tasks identified. Describe specific deliverables needed.`;
 
     // Second call: generate detailed specs one batch at a time (5 per batch)
     const allUnits: any[] = [];
