@@ -445,21 +445,13 @@ export default async function agentRoutes(fastify: FastifyInstance) {
       let text = '';
 
       if (mimetype === 'application/pdf' || filename.endsWith('.pdf')) {
-        // Extract text from PDF using simple regex on raw buffer
-        // For production, use pdf-parse library
         try {
-          const raw = buffer.toString('utf-8');
-          // Simple PDF text extraction — find text between BT/ET markers
-          const matches = raw.match(/\(([^)]+)\)/g);
-          if (matches) {
-            text = matches.map(m => m.slice(1, -1)).join(' ').replace(/\\n/g, '\n').slice(0, 15000);
-          }
-          if (!text || text.length < 50) {
-            // Fallback: try to find readable text
-            text = raw.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 15000);
-          }
+          const pdfParse = (await import('pdf-parse')).default;
+          const result = await pdfParse(buffer);
+          text = result.text?.slice(0, 15000) || '[PDF contained no extractable text]';
+          if (result.info?.Title) text = `Title: ${result.info.Title}\n\n${text}`;
         } catch {
-          text = '[PDF text extraction failed]';
+          text = '[PDF text extraction failed — the file may be image-based or encrypted]';
         }
       } else if (mimetype.includes('wordprocessing') || filename.endsWith('.docx')) {
         // DOCX is a zip — extract document.xml and strip tags

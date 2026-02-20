@@ -75,7 +75,7 @@ importers:
         specifier: ^1.8.0
         version: 1.11.0
       pdf-parse:
-        specifier: ^1.1.1
+        specifier: ^1.1.4
         version: 1.1.4
       pdfkit:
         specifier: ^0.15.0
