@@ -583,6 +583,48 @@ export default function DashboardPage() {
   const getVal = (field: string, fallback: any) => pendingChanges[field] !== undefined ? pendingChanges[field] : fallback;
   const hasChanges = Object.keys(pendingChanges).length > 0;
 
+  // Context-aware suggestions — refresh based on last messages and selected work unit
+  const suggestions = (() => {
+    if (streaming) return [];
+    const lastMsg = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
+    const lastUser = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+    const hasWU = !!selectedWU;
+    const wuTitle = selectedWU?.title?.slice(0, 30) || '';
+    const wuStatus = selectedWU?.status || '';
+
+    // No messages yet
+    if (messages.length === 0) return [];
+
+    // After creating work units
+    if (lastMsg.includes('draft') && lastMsg.includes('Created')) {
+      const s = [];
+      if (hasWU && wuStatus === 'draft') s.push('Publish this task');
+      s.push('Create contracts for these tasks');
+      s.push('Set up onboarding pages');
+      return s;
+    }
+    // After publishing
+    if (lastMsg.includes('Published') || lastMsg.includes('funded')) {
+      return ['Set up a screening interview', 'Create a contract', 'Design the onboarding page'];
+    }
+    // After creating contracts
+    if (lastMsg.includes('contract') && lastMsg.includes('draft')) {
+      return ['Activate this contract', 'Edit the contract', 'Create another contract'];
+    }
+    // Viewing a work unit
+    if (hasWU && messages.length > 0) {
+      const s = [];
+      if (wuStatus === 'draft') s.push('Publish');
+      if (wuStatus === 'active') s.push('Check for applicants');
+      s.push('Create a contract');
+      s.push('Design onboarding page');
+      s.push(`Get pricing recommendation`);
+      return s.slice(0, 4);
+    }
+    // Generic
+    return ['Show my active tasks', 'Check spending', 'Review submissions'];
+  })();
+
   return (
     <div className="flex h-[calc(100vh-48px)]">
       {/* ── Chat (left) ── */}
@@ -663,6 +705,17 @@ export default function DashboardPage() {
 
         {/* Input */}
         <div className="px-6 py-3 border-t border-slate-200/40 flex-shrink-0">
+          {/* Floating suggestions */}
+          {suggestions.length > 0 && messages.length > 0 && !streaming && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {suggestions.map((s, i) => (
+                <button key={i} onClick={() => setInput(s)}
+                  className="px-2.5 py-1 text-[11px] text-violet-600/80 bg-violet-50/60 hover:bg-violet-100/80 rounded-full border border-violet-200/50 transition-colors">
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
           {/* Attached files + pasted images preview */}
           {(attachedFiles.length > 0 || pastedImages.length > 0) && (
             <div className="flex flex-wrap gap-1.5 mb-2">
