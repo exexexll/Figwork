@@ -509,6 +509,7 @@ export default function DashboardPage() {
     setInput('');
     setAttachedFiles([]);
     setPastedImages([]);
+    setSuggestions([]);
     setStreaming(true);
     const aId = `a-${Date.now()}`;
     setMessages(prev => [...prev, { id: aId, role: 'assistant', content: '' }]);
@@ -551,6 +552,8 @@ export default function DashboardPage() {
               }
             } else if (ev.type === 'tool' && ev.status === 'done' && ev.result) {
               setMessages(prev => [...prev, { id: `t-${Date.now()}-${Math.random()}`, role: 'tool', content: null, toolName: ev.name, toolResult: ev.result }]);
+            } else if (ev.type === 'suggestions') {
+              setSuggestions(ev.items || []);
             } else if (ev.type === 'done') {
               if (ev.conversationId) setConversationId(ev.conversationId);
               loadConversations();
@@ -583,47 +586,7 @@ export default function DashboardPage() {
   const getVal = (field: string, fallback: any) => pendingChanges[field] !== undefined ? pendingChanges[field] : fallback;
   const hasChanges = Object.keys(pendingChanges).length > 0;
 
-  // Context-aware suggestions — refresh based on last messages and selected work unit
-  const suggestions = (() => {
-    if (streaming) return [];
-    const lastMsg = messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || '';
-    const lastUser = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
-    const hasWU = !!selectedWU;
-    const wuTitle = selectedWU?.title?.slice(0, 30) || '';
-    const wuStatus = selectedWU?.status || '';
-
-    // No messages yet
-    if (messages.length === 0) return [];
-
-    // After creating work units
-    if (lastMsg.includes('draft') && lastMsg.includes('Created')) {
-      const s = [];
-      if (hasWU && wuStatus === 'draft') s.push('Publish this task');
-      s.push('Create contracts for these tasks');
-      s.push('Set up onboarding pages');
-      return s;
-    }
-    // After publishing
-    if (lastMsg.includes('Published') || lastMsg.includes('funded')) {
-      return ['Set up a screening interview', 'Create a contract', 'Design the onboarding page'];
-    }
-    // After creating contracts
-    if (lastMsg.includes('contract') && lastMsg.includes('draft')) {
-      return ['Activate this contract', 'Edit the contract', 'Create another contract'];
-    }
-    // Viewing a work unit
-    if (hasWU && messages.length > 0) {
-      const s = [];
-      if (wuStatus === 'draft') s.push('Publish');
-      if (wuStatus === 'active') s.push('Check for applicants');
-      s.push('Create a contract');
-      s.push('Design onboarding page');
-      s.push(`Get pricing recommendation`);
-      return s.slice(0, 4);
-    }
-    // Generic
-    return ['Show my active tasks', 'Check spending', 'Review submissions'];
-  })();
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
   return (
     <div className="flex h-[calc(100vh-48px)]">

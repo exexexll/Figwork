@@ -427,6 +427,28 @@ export default async function agentRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // Generate context-aware suggestions based on what just happened
+      try {
+        const suggestionPrompt = `Based on this conversation, suggest 3-4 short next actions the user might want to take. Return ONLY a JSON array of strings, no explanation. Example: ["Publish this task","Create a contract","Set up onboarding"]. Keep each under 30 chars.`;
+        const suggestionRes = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            ...loopMessages.slice(-6),
+            { role: 'user', content: suggestionPrompt },
+          ],
+          max_tokens: 150,
+          temperature: 0.3,
+        });
+        const raw = suggestionRes.choices[0]?.message?.content || '[]';
+        const match = raw.match(/\[[\s\S]*\]/);
+        if (match) {
+          const suggestions = JSON.parse(match[0]);
+          if (Array.isArray(suggestions)) {
+            reply.raw.write(`data: ${JSON.stringify({ type: 'suggestions', items: suggestions.slice(0, 4) })}\n\n`);
+          }
+        }
+      } catch {}
+
       reply.raw.write(`data: ${JSON.stringify({ type: 'done', conversationId: conversation.id })}\n\n`);
       reply.raw.end();
     } catch (err: any) {
