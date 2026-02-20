@@ -30,6 +30,56 @@ function timeAgo(d: string): string {
   return `${Math.floor(ms / 86400000)}d`;
 }
 
+/** Parse markdown-style bold/italic into React elements */
+function formatText(text: string): React.ReactNode[] {
+  // Split on **bold** and *italic* patterns
+  const parts: React.ReactNode[] = [];
+  let remaining = text;
+  let key = 0;
+
+  while (remaining.length > 0) {
+    // Match **bold** first (greedy but not across newlines)
+    const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+    // Match *italic* (single asterisk, not double)
+    const italicMatch = remaining.match(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/);
+
+    // Find the earliest match
+    const boldIdx = boldMatch ? remaining.indexOf(boldMatch[0]) : -1;
+    const italicIdx = italicMatch ? remaining.indexOf(italicMatch[0]) : -1;
+
+    let earliest = -1;
+    let matchType: 'bold' | 'italic' | null = null;
+    let matchObj: RegExpMatchArray | null = null;
+
+    if (boldIdx !== -1 && (italicIdx === -1 || boldIdx <= italicIdx)) {
+      earliest = boldIdx; matchType = 'bold'; matchObj = boldMatch;
+    } else if (italicIdx !== -1) {
+      earliest = italicIdx; matchType = 'italic'; matchObj = italicMatch;
+    }
+
+    if (earliest === -1 || !matchObj) {
+      parts.push(remaining);
+      break;
+    }
+
+    // Add text before the match
+    if (earliest > 0) {
+      parts.push(remaining.slice(0, earliest));
+    }
+
+    // Add the styled element
+    if (matchType === 'bold') {
+      parts.push(<span key={key++} className="font-semibold text-slate-950">{matchObj[1]}</span>);
+    } else {
+      parts.push(<span key={key++} className="italic text-slate-700">{matchObj[1]}</span>);
+    }
+
+    remaining = remaining.slice(earliest + matchObj[0].length);
+  }
+
+  return parts;
+}
+
 export default function DashboardPage() {
   const { getToken } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -469,7 +519,7 @@ export default function DashboardPage() {
                 return (
                   <div key={msg.id} className="pl-0.5">
                     <p className="text-sm text-slate-900 whitespace-pre-wrap leading-relaxed">
-                      {msg.content}
+                      {msg.content ? formatText(msg.content) : null}
                       {streaming && messages[messages.length - 1]?.id === msg.id && <span className="inline-block w-1 h-3.5 bg-slate-300 ml-0.5 animate-pulse" />}
                     </p>
                   </div>
