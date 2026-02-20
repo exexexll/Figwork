@@ -88,6 +88,19 @@ export default function DashboardPage() {
     inputRef.current?.focus();
   }
 
+  async function deleteConversation(id: string) {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await fetch(`${API_URL}/api/agent/conversations/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (conversationId === id) startNewConversation();
+      loadConversations();
+    } catch {}
+  }
+
   async function loadSidePanel() {
     try {
       const token = await getToken();
@@ -237,10 +250,12 @@ export default function DashboardPage() {
           } catch {}
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       setMessages(prev =>
         prev.map(m =>
-          m.id === assistantId ? { ...m, content: 'Something went wrong. Try again.' } : m
+          m.id === assistantId
+            ? { ...m, content: err?.message?.includes('Failed to fetch') ? 'Connection lost. Check if the server is running.' : 'Something went wrong. Try again.' }
+            : m
         )
       );
     } finally {
@@ -280,15 +295,22 @@ export default function DashboardPage() {
                   New conversation
                 </button>
                 {conversations.map(c => (
-                  <button
-                    key={c.id}
-                    onClick={() => loadConversation(c.id)}
-                    className={`w-full text-left px-3 py-2 text-xs hover:bg-slate-50 truncate ${
-                      c.id === conversationId ? 'text-slate-900' : 'text-slate-500'
-                    }`}
-                  >
-                    {c.title || 'Untitled'}
-                  </button>
+                  <div key={c.id} className="flex items-center group">
+                    <button
+                      onClick={() => loadConversation(c.id)}
+                      className={`flex-1 text-left px-3 py-2 text-xs hover:bg-slate-50 truncate ${
+                        c.id === conversationId ? 'text-slate-900' : 'text-slate-500'
+                      }`}
+                    >
+                      {c.title || 'Untitled'}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteConversation(c.id); }}
+                      className="px-2 py-2 text-slate-300 hover:text-slate-500 opacity-0 group-hover:opacity-100"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -306,10 +328,27 @@ export default function DashboardPage() {
         <div className="flex-1 overflow-y-auto px-5 py-6">
           {messages.length === 0 && (
             <div className="h-full flex items-center justify-center">
-              <div className="text-center max-w-md">
-                <p className="text-slate-400 text-sm">
-                  Tell me what you need done. I can create tasks, find contractors, review submissions, draft contracts, and manage your spending.
+              <div className="max-w-md space-y-6">
+                <p className="text-slate-400 text-sm text-center">
+                  What do you need done?
                 </p>
+                <div className="space-y-2">
+                  {[
+                    'Create a new task for UGC content creation',
+                    'Show me what tasks are active',
+                    'How much have I spent this month?',
+                    'Set up a screening interview for writers',
+                    'Review pending submissions',
+                  ].map((suggestion, i) => (
+                    <button
+                      key={i}
+                      onClick={() => { setInput(suggestion); }}
+                      className="block w-full text-left px-3 py-2 text-xs text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -538,30 +577,47 @@ export default function DashboardPage() {
 
                 {/* Tab 3: Financial */}
                 {sidePanelTab === 'financial' && (
-                  <div className="space-y-3 text-xs">
+                  <div className="space-y-4 text-xs">
+                    {/* Task financials */}
+                    <div>
+                      <span className="text-slate-400 block mb-1">Task price</span>
+                      <p className="text-slate-700">${(selectedWorkUnit.priceInCents / 100).toFixed(2)}</p>
+                    </div>
                     <div>
                       <span className="text-slate-400 block mb-1">Escrow</span>
                       {selectedWorkUnit.escrow ? (
                         <div>
                           <p className="text-slate-700">${(selectedWorkUnit.escrow.amountInCents / 100).toFixed(2)} — {selectedWorkUnit.escrow.status}</p>
                           {selectedWorkUnit.escrow.status === 'pending' && (
-                            <button
-                              onClick={fundEscrowFromPanel}
-                              className="mt-1 text-slate-500 hover:text-slate-900"
-                            >
-                              fund escrow
-                            </button>
+                            <div className="flex gap-3 mt-1.5">
+                              <button onClick={fundEscrowFromPanel} className="text-slate-500 hover:text-slate-900">fund escrow</button>
+                              <button onClick={async () => {
+                                await fundEscrowFromPanel();
+                                await updateWorkUnitField('status', 'active');
+                              }} className="text-slate-500 hover:text-slate-900">fund + publish</button>
+                            </div>
                           )}
                         </div>
                       ) : (
-                        <p className="text-slate-400">No escrow</p>
+                        <p className="text-slate-400">No escrow account</p>
                       )}
                     </div>
-                    {sideData.billing && (
+                    {/* Platform fee */}
+                    {selectedWorkUnit.escrow && (
                       <div>
-                        <span className="text-slate-400 block mb-1">Company billing</span>
-                        <p className="text-slate-700">Escrow: ${((sideData.billing.activeEscrowInCents || 0) / 100).toFixed(0)}</p>
-                        <p className="text-slate-700">This month: ${((sideData.billing.monthlySpendInCents || 0) / 100).toFixed(0)}</p>
+                        <span className="text-slate-400 block mb-1">Platform fee</span>
+                        <p className="text-slate-700">${(selectedWorkUnit.escrow.platformFeeInCents / 100).toFixed(2)} ({(selectedWorkUnit.platformFeePercent * 100).toFixed(0)}%)</p>
+                        <p className="text-slate-400">Contractor receives: ${(selectedWorkUnit.escrow.netAmountInCents / 100).toFixed(2)}</p>
+                      </div>
+                    )}
+                    {/* Company totals */}
+                    {sideData.billing && (
+                      <div className="pt-2 border-t border-slate-50">
+                        <span className="text-slate-400 block mb-1">Company totals</span>
+                        <div className="space-y-0.5">
+                          <div className="flex justify-between"><span className="text-slate-500">Active escrow</span><span className="text-slate-700">${((sideData.billing.activeEscrowInCents || 0) / 100).toFixed(0)}</span></div>
+                          <div className="flex justify-between"><span className="text-slate-500">This month</span><span className="text-slate-700">${((sideData.billing.monthlySpendInCents || 0) / 100).toFixed(0)}</span></div>
+                        </div>
                       </div>
                     )}
                   </div>
