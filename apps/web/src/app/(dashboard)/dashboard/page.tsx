@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
-import { Send, Plus, ChevronDown, X, GripVertical, Check, Paperclip, FileText, Globe, Loader2, Sparkles, Calculator, Search, FileCheck } from 'lucide-react';
+import { Send, Plus, ChevronDown, X, GripVertical, Check, Paperclip, FileText, Globe, Loader2, Sparkles, Calculator, Search, FileCheck, Eye, Save, Trash2, Type, Image, CheckSquare, AlertCircle, MoveUp, MoveDown, Palette } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -92,18 +92,26 @@ export default function DashboardPage() {
   // Panel state
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(480);
-  const [panelTab, setPanelTab] = useState<'overview' | 'execution' | 'financial' | 'legal'>('overview');
+  const [panelTab, setPanelTab] = useState<'overview' | 'execution' | 'financial' | 'legal' | 'onboard'>('overview');
   const [sideData, setSideData] = useState<any>(null);
   const [selectedWU, setSelectedWU] = useState<any>(null);
   const [interviewDetail, setInterviewDetail] = useState<any>(null);
   const [pendingChanges, setPendingChanges] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-  const [onboardWelcome, setOnboardWelcome] = useState('');
-  const [onboardInstructions, setOnboardInstructions] = useState('');
-  const [onboardChecklist, setOnboardChecklist] = useState('');
-  const [onboardExamples, setOnboardExamples] = useState('');
   const [contracts, setContracts] = useState<any[]>([]);
+
+  // Onboarding editor state (block-based)
+  type BlockType = 'hero' | 'text' | 'image' | 'checklist' | 'cta' | 'divider';
+  interface PageBlock { id: string; type: BlockType; content: Record<string, any>; }
+  const [obBlocks, setObBlocks] = useState<PageBlock[]>([]);
+  const [obAccentColor, setObAccentColor] = useState('#a78bfa');
+  const [obLogoUrl, setObLogoUrl] = useState('');
+  const [obCompanyName, setObCompanyName] = useState('');
+  const [obEditingBlock, setObEditingBlock] = useState<string | null>(null);
+  const [obPreview, setObPreview] = useState(false);
+  const [obSaving, setObSaving] = useState(false);
+  const [obSaved, setObSaved] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -258,50 +266,89 @@ export default function DashboardPage() {
 
   async function saveOnboarding() {
     if (!selectedWU) return;
+    setObSaving(true); setObSaved(false);
     try {
       const t = await getToken(); if (!t) return;
-      // Save onboarding data as part of the work unit's address/metadata
-      // Using the company profile's address field to store onboarding config
       const res = await fetch(`${API_URL}/api/companies/me`, { headers: { Authorization: `Bearer ${t}` } });
-      if (res.ok) {
-        const profile = await res.json();
-        const existing = (typeof profile.address === 'object' && profile.address) || {};
-        const onboardingPages = existing.onboardingPages || {};
-        onboardingPages[selectedWU.id] = {
-          welcome: onboardWelcome,
-          instructions: onboardInstructions,
-          checklist: onboardChecklist.split('\n').filter(Boolean),
-          exampleWorkUrls: onboardExamples.split('\n').filter(Boolean),
-        };
-        await fetch(`${API_URL}/api/companies/me`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address: { ...existing, onboardingPages } }),
-        });
-      }
+      if (!res.ok) { setObSaving(false); return; }
+      const profile = await res.json();
+      const existing = (typeof profile.address === 'object' && profile.address) || {};
+      const onboardingPages = existing.onboardingPages || {};
+      onboardingPages[selectedWU.id] = {
+        accentColor: obAccentColor,
+        logoUrl: obLogoUrl,
+        blocks: obBlocks,
+      };
+      await fetch(`${API_URL}/api/companies/me`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: { ...existing, onboardingPages } }),
+      });
+      setObSaved(true);
+      setTimeout(() => setObSaved(false), 3000);
     } catch {}
+    setObSaving(false);
   }
 
-  // Load onboarding when selecting a work unit
   async function loadOnboarding(wuId: string) {
     try {
       const t = await getToken(); if (!t) return;
       const res = await fetch(`${API_URL}/api/companies/me`, { headers: { Authorization: `Bearer ${t}` } });
       if (res.ok) {
         const profile = await res.json();
-        const pages = (profile.address as any)?.onboardingPages || {};
-        const page = pages[wuId] || {};
-        setOnboardWelcome(page.welcome || '');
-        setOnboardInstructions(page.instructions || '');
-        setOnboardChecklist((page.checklist || []).join('\n'));
-        setOnboardExamples((page.exampleWorkUrls || []).join('\n'));
+        setObCompanyName(profile.companyName || '');
+        setObLogoUrl(profile.website ? `https://logo.clearbit.com/${profile.website.replace(/https?:\/\//, '')}` : '');
+        const addr = profile.address as any;
+        let saved = null;
+        if (addr?.onboardingPages?.[wuId]?.blocks) saved = addr.onboardingPages[wuId];
+        else if (addr?.onboardingPage?.blocks) saved = addr.onboardingPage;
+        if (saved?.blocks?.length > 0) {
+          setObBlocks(saved.blocks);
+          if (saved.accentColor) setObAccentColor(saved.accentColor);
+          if (saved.logoUrl) setObLogoUrl(saved.logoUrl);
+        } else {
+          setObBlocks([
+            { id: 'def-hero', type: 'hero', content: { heading: 'Welcome to {companyName}', subheading: 'Review the info below before getting started.' } },
+            { id: 'def-text', type: 'text', content: { heading: 'About This Task', body: 'Read the spec carefully and ask questions if anything is unclear.' } },
+            { id: 'def-checklist', type: 'checklist', content: { heading: 'What We Expect', items: ['Deliver work on time', 'Follow acceptance criteria', 'Respond to POW check-ins'] } },
+          ]);
+        }
       }
     } catch {
-      setOnboardWelcome('');
-      setOnboardInstructions('');
-      setOnboardChecklist('');
-      setOnboardExamples('');
+      setObBlocks([]);
     }
+  }
+
+  function obAddBlock(type: BlockType) {
+    const defaults: Record<BlockType, Record<string, any>> = {
+      hero: { heading: 'Welcome', subheading: 'Brief intro...' },
+      text: { heading: '', body: 'Content...' },
+      image: { url: '', alt: 'Image', caption: '' },
+      checklist: { heading: 'Checklist', items: ['Item 1', 'Item 2'] },
+      cta: { heading: 'Ready?', body: 'Make sure to review everything.', buttonText: "I'm Ready" },
+      divider: {},
+    };
+    const id = `b-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+    setObBlocks(prev => [...prev, { id, type, content: { ...defaults[type] } }]);
+    setObEditingBlock(id);
+  }
+
+  function obRemoveBlock(id: string) {
+    setObBlocks(prev => prev.filter(b => b.id !== id));
+    if (obEditingBlock === id) setObEditingBlock(null);
+  }
+
+  function obMoveBlock(id: string, dir: 'up' | 'down') {
+    setObBlocks(prev => {
+      const a = [...prev]; const i = a.findIndex(b => b.id === id);
+      if (dir === 'up' && i > 0) [a[i - 1], a[i]] = [a[i], a[i - 1]];
+      else if (dir === 'down' && i < a.length - 1) [a[i + 1], a[i]] = [a[i], a[i + 1]];
+      return a;
+    });
+  }
+
+  function obUpdateBlock(id: string, key: string, value: any) {
+    setObBlocks(prev => prev.map(b => b.id === id ? { ...b, content: { ...b.content, [key]: value } } : b));
   }
 
   async function loadContracts() {
@@ -598,10 +645,10 @@ export default function DashboardPage() {
 
           {/* Tabs */}
           {selectedWU && (
-            <div className="px-4 pt-2 flex gap-4 border-b border-slate-100 flex-shrink-0">
-              {['overview', 'execution', 'financial', 'legal'].map(tab => (
+            <div className="px-4 pt-2 flex gap-3 border-b border-slate-100 flex-shrink-0 overflow-x-auto">
+              {['overview', 'execution', 'financial', 'legal', 'onboard'].map(tab => (
                 <button key={tab} onClick={() => setPanelTab(tab as any)}
-                  className={`pb-2 text-xs capitalize ${panelTab === tab ? 'text-slate-900 border-b-2 border-slate-900' : 'text-slate-400 hover:text-slate-600'}`}>
+                  className={`pb-2 text-xs capitalize whitespace-nowrap ${panelTab === tab ? 'text-slate-900 border-b-2 border-slate-900' : 'text-slate-400 hover:text-slate-600'}`}>
                   {tab}
                 </button>
               ))}
@@ -694,69 +741,6 @@ export default function DashboardPage() {
                       )) : <p className="text-slate-400">None yet</p>}
                     </div>
 
-                    {/* Onboarding Page */}
-                    <div className="pt-2 border-t border-slate-50">
-                      <span className="text-slate-400 block mb-1">Contractor Onboarding</span>
-                      <div className="space-y-2">
-                        <div>
-                          <span className="text-slate-400 text-[10px]">Welcome message</span>
-                          <textarea
-                            value={onboardWelcome}
-                            onChange={e => setOnboardWelcome(e.target.value)}
-                            className="w-full text-xs text-slate-600 bg-transparent border border-slate-100 rounded p-1.5 focus:ring-0 focus:border-slate-300 resize-none mt-0.5"
-                            rows={2}
-                            placeholder="Welcome to this task! Here's what you need to know..."
-                          />
-                        </div>
-                        <div>
-                          <span className="text-slate-400 text-[10px]">Instructions</span>
-                          <textarea
-                            value={onboardInstructions}
-                            onChange={e => setOnboardInstructions(e.target.value)}
-                            className="w-full text-xs text-slate-600 bg-transparent border border-slate-100 rounded p-1.5 focus:ring-0 focus:border-slate-300 resize-none mt-0.5"
-                            rows={3}
-                            placeholder="1. Read the spec carefully&#10;2. Check deliverable format&#10;3. Submit before deadline"
-                          />
-                        </div>
-                        <div>
-                          <span className="text-slate-400 text-[10px]">Checklist</span>
-                          <textarea
-                            value={onboardChecklist}
-                            onChange={e => setOnboardChecklist(e.target.value)}
-                            className="w-full text-xs text-slate-600 bg-transparent border border-slate-100 rounded p-1.5 focus:ring-0 focus:border-slate-300 resize-none mt-0.5"
-                            rows={2}
-                            placeholder="Read spec&#10;Review examples&#10;Check deadline"
-                          />
-                          <span className="text-slate-300 text-[10px]">one item per line</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 text-[10px]">Example work / reference URLs</span>
-                          <textarea
-                            value={onboardExamples}
-                            onChange={e => setOnboardExamples(e.target.value)}
-                            className="w-full text-xs text-slate-600 bg-transparent border border-slate-100 rounded p-1.5 focus:ring-0 focus:border-slate-300 resize-none mt-0.5"
-                            rows={2}
-                            placeholder="https://example.com/sample-work.pdf&#10;https://drive.google.com/file/..."
-                          />
-                          <span className="text-slate-300 text-[10px]">one URL per line</span>
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={saveOnboarding} className="text-slate-500 hover:text-slate-900 text-xs">
-                            save
-                          </button>
-                          <button onClick={() => setInput(`Update the onboarding page for "${selectedWU?.title}" — write a professional welcome message and detailed step-by-step instructions based on the task spec`)} className="text-slate-400 hover:text-slate-700 text-xs">
-                            AI write →
-                          </button>
-                          <a
-                            href={`/dashboard/settings/onboarding-editor?workUnitId=${selectedWU?.id}`}
-                            target="_blank"
-                            className="text-slate-400 hover:text-slate-700 text-xs"
-                          >
-                            full editor →
-                          </a>
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 )}
 
@@ -827,6 +811,115 @@ export default function DashboardPage() {
                         <p>IC classification — independent contractor</p>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* Onboard tab — full visual editor */}
+                {panelTab === 'onboard' && (
+                  <div className="space-y-3">
+                    {/* Preview toggle */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 text-xs font-medium">Onboarding Page</span>
+                      <div className="flex gap-1.5">
+                        <button onClick={() => setObPreview(!obPreview)}
+                          className={`text-[10px] px-2 py-0.5 rounded ${obPreview ? 'bg-slate-900 text-white' : 'text-slate-500 border border-slate-200 hover:bg-slate-50'}`}>
+                          <Eye className="w-3 h-3 inline mr-0.5" /> {obPreview ? 'editing' : 'preview'}
+                        </button>
+                        <button onClick={saveOnboarding} disabled={obSaving}
+                          className="text-[10px] px-2 py-0.5 rounded bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50">
+                          <Save className="w-3 h-3 inline mr-0.5" /> {obSaving ? '...' : obSaved ? '✓' : 'save'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {obPreview ? (
+                      /* Preview mode */
+                      <div className="bg-[#faf8fc] rounded-lg p-3 space-y-3">
+                        {obLogoUrl && <img src={obLogoUrl} alt="" className="h-6 mx-auto" onError={e => (e.currentTarget.style.display = 'none')} />}
+                        {obBlocks.map(block => (
+                          <PanelBlockPreview key={block.id} block={block} accentColor={obAccentColor} companyName={obCompanyName} />
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        {/* Accent color */}
+                        <div>
+                          <span className="text-[10px] text-slate-400 block mb-1">Accent color</span>
+                          <div className="flex gap-1.5">
+                            {['#a78bfa','#3b82f6','#10b981','#f59e0b','#ec4899','#ef4444','#14b8a6','#64748b'].map(c => (
+                              <button key={c} onClick={() => setObAccentColor(c)}
+                                className={`w-5 h-5 rounded-full border-2 transition-all ${obAccentColor === c ? 'border-slate-900 scale-110' : 'border-transparent'}`}
+                                style={{ backgroundColor: c }} />
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Add block */}
+                        <div>
+                          <span className="text-[10px] text-slate-400 block mb-1">Add block</span>
+                          <div className="flex flex-wrap gap-1">
+                            {([
+                              ['hero', '✦'], ['text', '¶'], ['image', '🖼'], ['checklist', '☑'], ['cta', '→'], ['divider', '—']
+                            ] as [BlockType, string][]).map(([t, icon]) => (
+                              <button key={t} onClick={() => obAddBlock(t)}
+                                className="text-[10px] px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-white hover:border-slate-300 transition-colors">
+                                {icon} {t}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Block list */}
+                        {obBlocks.length === 0 ? (
+                          <div className="py-6 text-center border-2 border-dashed border-slate-200 rounded-lg">
+                            <p className="text-xs text-slate-400">Add blocks above to build the page</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {obBlocks.map((block, idx) => (
+                              <div key={block.id} className={`rounded-lg border transition-all ${obEditingBlock === block.id ? 'border-violet-300 bg-violet-50/30' : 'border-slate-200 bg-white'}`}>
+                                {/* Block header */}
+                                <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-slate-100">
+                                  <div className="flex items-center gap-1.5">
+                                    <GripVertical className="w-3 h-3 text-slate-300" />
+                                    <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{block.type}</span>
+                                  </div>
+                                  <div className="flex items-center gap-0.5">
+                                    <button onClick={() => obMoveBlock(block.id, 'up')} disabled={idx === 0} className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">
+                                      <MoveUp className="w-3 h-3" />
+                                    </button>
+                                    <button onClick={() => obMoveBlock(block.id, 'down')} disabled={idx === obBlocks.length - 1} className="p-0.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">
+                                      <MoveDown className="w-3 h-3" />
+                                    </button>
+                                    <button onClick={() => setObEditingBlock(obEditingBlock === block.id ? null : block.id)} className="p-0.5 text-slate-400 hover:text-violet-500">
+                                      <Type className="w-3 h-3" />
+                                    </button>
+                                    <button onClick={() => obRemoveBlock(block.id)} className="p-0.5 text-slate-400 hover:text-red-500">
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Block content */}
+                                <div className="p-2.5">
+                                  {obEditingBlock === block.id ? (
+                                    <PanelBlockEditor block={block} onChange={obUpdateBlock} />
+                                  ) : (
+                                    <PanelBlockPreview block={block} accentColor={obAccentColor} companyName={obCompanyName} />
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* AI write button */}
+                        <button onClick={() => setInput(`Design a professional onboarding page for "${selectedWU?.title}". Create hero, instructions, checklist, and CTA blocks based on the task spec. Use the set_onboarding_blocks tool.`)}
+                          className="w-full text-xs text-slate-600 border border-slate-200 rounded py-1.5 hover:bg-white transition-colors flex items-center justify-center gap-1.5">
+                          <Sparkles className="w-3 h-3" /> AI design this page
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -919,4 +1012,116 @@ function ToolStatus({ label, toolName, phase }: { label: string; toolName: strin
       {phase === 'done' && <span className="text-emerald-500 text-[10px]">✓</span>}
     </div>
   );
+}
+
+// ── Onboarding block editor (panel-sized) ──
+
+function PanelBlockEditor({ block, onChange }: { block: { id: string; type: string; content: Record<string, any> }; onChange: (id: string, key: string, value: any) => void }) {
+  const inputCls = "w-full px-2 py-1.5 rounded border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-300 bg-white";
+  const labelCls = "text-[10px] font-medium text-slate-500 mb-0.5 block";
+
+  switch (block.type) {
+    case 'hero':
+      return (
+        <div className="space-y-2">
+          <div><label className={labelCls}>Heading</label><input type="text" value={block.content.heading || ''} onChange={e => onChange(block.id, 'heading', e.target.value)} className={inputCls} /></div>
+          <div><label className={labelCls}>Subheading</label><textarea value={block.content.subheading || ''} onChange={e => onChange(block.id, 'subheading', e.target.value)} className={`${inputCls} resize-none h-14`} /></div>
+        </div>
+      );
+    case 'text':
+      return (
+        <div className="space-y-2">
+          <div><label className={labelCls}>Heading</label><input type="text" value={block.content.heading || ''} onChange={e => onChange(block.id, 'heading', e.target.value)} className={inputCls} placeholder="Optional heading" /></div>
+          <div><label className={labelCls}>Body</label><textarea value={block.content.body || ''} onChange={e => onChange(block.id, 'body', e.target.value)} className={`${inputCls} resize-none h-24`} /></div>
+        </div>
+      );
+    case 'image':
+      return (
+        <div className="space-y-2">
+          <div><label className={labelCls}>Image URL</label><input type="url" value={block.content.url || ''} onChange={e => onChange(block.id, 'url', e.target.value)} className={inputCls} placeholder="https://..." /></div>
+          <div><label className={labelCls}>Caption</label><input type="text" value={block.content.caption || ''} onChange={e => onChange(block.id, 'caption', e.target.value)} className={inputCls} /></div>
+          {block.content.url && <img src={block.content.url} alt="" className="w-full rounded max-h-24 object-cover" onError={e => (e.currentTarget.style.display = 'none')} />}
+        </div>
+      );
+    case 'checklist':
+      return (
+        <div className="space-y-2">
+          <div><label className={labelCls}>Heading</label><input type="text" value={block.content.heading || ''} onChange={e => onChange(block.id, 'heading', e.target.value)} className={inputCls} /></div>
+          <div>
+            <label className={labelCls}>Items (one per line)</label>
+            <textarea value={(block.content.items || []).join('\n')} onChange={e => onChange(block.id, 'items', e.target.value.split('\n').filter(Boolean))} className={`${inputCls} resize-none h-20`} placeholder="Item 1&#10;Item 2" />
+          </div>
+        </div>
+      );
+    case 'cta':
+      return (
+        <div className="space-y-2">
+          <div><label className={labelCls}>Heading</label><input type="text" value={block.content.heading || ''} onChange={e => onChange(block.id, 'heading', e.target.value)} className={inputCls} /></div>
+          <div><label className={labelCls}>Body</label><textarea value={block.content.body || ''} onChange={e => onChange(block.id, 'body', e.target.value)} className={`${inputCls} resize-none h-12`} /></div>
+          <div><label className={labelCls}>Button text</label><input type="text" value={block.content.buttonText || ''} onChange={e => onChange(block.id, 'buttonText', e.target.value)} className={inputCls} /></div>
+        </div>
+      );
+    case 'divider':
+      return <div className="text-[10px] text-slate-400 text-center py-1">— divider —</div>;
+    default:
+      return null;
+  }
+}
+
+function PanelBlockPreview({ block, accentColor, companyName }: { block: { id: string; type: string; content: Record<string, any> }; accentColor: string; companyName: string }) {
+  const resolve = (s: string) => s?.replace('{companyName}', companyName || 'Your Company') || '';
+
+  switch (block.type) {
+    case 'hero':
+      return (
+        <div className="text-center py-1">
+          <p className="text-xs font-bold text-slate-800">{resolve(block.content.heading)}</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">{resolve(block.content.subheading)}</p>
+        </div>
+      );
+    case 'text':
+      return (
+        <div>
+          {block.content.heading && <p className="text-xs font-semibold text-slate-800 mb-0.5">{block.content.heading}</p>}
+          <p className="text-[11px] text-slate-600 whitespace-pre-wrap leading-relaxed">{block.content.body}</p>
+        </div>
+      );
+    case 'image':
+      return block.content.url ? (
+        <div>
+          <img src={block.content.url} alt="" className="w-full rounded max-h-20 object-cover" onError={e => (e.currentTarget.style.display = 'none')} />
+          {block.content.caption && <p className="text-[10px] text-slate-400 text-center mt-0.5">{block.content.caption}</p>}
+        </div>
+      ) : (
+        <div className="py-3 text-center border border-dashed border-slate-200 rounded"><p className="text-[10px] text-slate-400">No image</p></div>
+      );
+    case 'checklist':
+      return (
+        <div>
+          {block.content.heading && <p className="text-xs font-semibold text-slate-800 mb-1">{block.content.heading}</p>}
+          <ul className="space-y-0.5">
+            {(block.content.items || []).map((item: string, i: number) => (
+              <li key={i} className="flex items-start gap-1.5 text-[11px] text-slate-600">
+                <CheckSquare className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: accentColor }} />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
+    case 'cta':
+      return (
+        <div className="text-center py-1.5 px-2 rounded" style={{ backgroundColor: `${accentColor}15` }}>
+          <p className="text-xs font-semibold text-slate-800">{block.content.heading}</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">{block.content.body}</p>
+          <span className="inline-block mt-1 px-3 py-1 rounded text-white text-[10px] font-medium" style={{ backgroundColor: accentColor }}>
+            {block.content.buttonText || 'Continue'}
+          </span>
+        </div>
+      );
+    case 'divider':
+      return <hr className="border-slate-200" />;
+    default:
+      return null;
+  }
 }

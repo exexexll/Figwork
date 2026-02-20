@@ -112,7 +112,7 @@ function getToolStatusLabel(toolName: string, args: any): string {
     case 'create_contract': return 'Creating contract';
     case 'list_contracts': return 'Loading contracts';
     case 'activate_contract': return 'Activating contract';
-    case 'set_onboarding': return 'Setting up onboarding';
+    case 'set_onboarding': return 'Designing onboarding page';
     case 'get_onboarding': return 'Loading onboarding page';
     case 'get_monitoring_summary': return 'Checking operations status';
     case 'list_all_executions': return 'Loading all executions';

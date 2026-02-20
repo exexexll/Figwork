@@ -360,7 +360,7 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'get_contract', description: 'Get a contract with its content and signature status', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'update_contract', description: 'Update a contract — bumps version, optionally requires re-signing', parameters: { type: 'object', properties: { contractId: { type: 'string' }, title: { type: 'string' }, content: { type: 'string' }, requiresResign: { type: 'boolean' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'activate_contract', description: 'Set a contract to active so contractors must sign it during onboarding', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
-  { type: 'function' as const, function: { name: 'set_onboarding', description: 'Set the contractor onboarding page for a work unit — welcome, instructions, checklist, examples, communication channels, and deliverable format', parameters: { type: 'object', properties: { workUnitId: { type: 'string' }, welcome: { type: 'string', description: 'Welcome message' }, instructions: { type: 'string', description: 'Step-by-step instructions' }, exampleWorkUrls: { type: 'array', items: { type: 'string' }, description: 'URLs to example deliverables' }, checklist: { type: 'array', items: { type: 'string' }, description: 'Checklist items' }, communicationChannel: { type: 'string', description: 'How to communicate — e.g. Slack invite link, email, Discord, or Figwork platform only' }, deliverableSubmissionMethod: { type: 'string', description: 'How to submit — e.g. Google Drive link, GitHub PR, upload to Figwork, email attachment' } }, required: ['workUnitId'] } } },
+  { type: 'function' as const, function: { name: 'set_onboarding', description: 'Set the contractor onboarding page for a work unit using visual blocks. Blocks: hero (heading, subheading), text (heading, body), checklist (heading, items[]), cta (heading, body, buttonText), image (url, caption), divider. The page is shown to contractors before they start work.', parameters: { type: 'object', properties: { workUnitId: { type: 'string' }, accentColor: { type: 'string', description: 'Hex color for accents, e.g. #a78bfa' }, blocks: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', enum: ['hero', 'text', 'checklist', 'cta', 'image', 'divider'] }, content: { type: 'object', description: 'Block content — varies by type. hero: {heading,subheading}. text: {heading,body}. checklist: {heading,items:[]}. cta: {heading,body,buttonText}. image: {url,caption}. divider: {}' } }, required: ['type', 'content'] }, description: 'Array of page blocks in display order' } }, required: ['workUnitId', 'blocks'] } } },
   { type: 'function' as const, function: { name: 'get_onboarding', description: 'Get the current onboarding page config for a work unit', parameters: { type: 'object', properties: { workUnitId: { type: 'string' } }, required: ['workUnitId'] } } },
   { type: 'function' as const, function: { name: 'list_all_executions', description: 'List ALL active executions across all work units — monitoring dashboard', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'get_pow_logs', description: 'Get proof-of-work check-in logs for an execution', parameters: { type: 'object', properties: { executionId: { type: 'string' } }, required: ['executionId'] } } },
@@ -1438,14 +1438,18 @@ async function toolSetOnboarding(args: any, companyId: string): Promise<string> 
   const existing = (typeof company.address === 'object' && company.address) || {};
   const onboardingPages = (existing as any).onboardingPages || {};
 
+  // Build block-based page data
+  const blocks = (args.blocks || []).map((b: any, i: number) => ({
+    id: `ai-${Date.now()}-${i}`,
+    type: b.type,
+    content: b.content || {},
+  }));
+
   const prev = onboardingPages[args.workUnitId] || {};
   onboardingPages[args.workUnitId] = {
-    welcome: args.welcome ?? prev.welcome ?? '',
-    instructions: args.instructions ?? prev.instructions ?? '',
-    exampleWorkUrls: args.exampleWorkUrls ?? prev.exampleWorkUrls ?? [],
-    checklist: args.checklist ?? prev.checklist ?? [],
-    communicationChannel: args.communicationChannel ?? prev.communicationChannel ?? '',
-    deliverableSubmissionMethod: args.deliverableSubmissionMethod ?? prev.deliverableSubmissionMethod ?? '',
+    ...prev,
+    accentColor: args.accentColor || prev.accentColor || '#a78bfa',
+    blocks: blocks.length > 0 ? blocks : prev.blocks || [],
   };
 
   await db.companyProfile.update({
@@ -1454,7 +1458,8 @@ async function toolSetOnboarding(args: any, companyId: string): Promise<string> 
   });
 
   const page = onboardingPages[args.workUnitId];
-  return `Updated onboarding page. Welcome: ${page.welcome ? 'set' : 'empty'}. Instructions: ${page.instructions ? 'set' : 'empty'}. Examples: ${page.exampleWorkUrls?.length || 0} URLs. Checklist: ${page.checklist?.length || 0} items.`;
+  const blockSummary = (page.blocks || []).map((b: any) => b.type).join(', ');
+  return `Updated onboarding page with ${page.blocks?.length || 0} blocks (${blockSummary}). Accent: ${page.accentColor}. The panel will refresh to show changes — switch to the "onboard" tab to see it.`;
 }
 
 async function toolGetOnboarding(args: any, companyId: string): Promise<string> {
@@ -1465,11 +1470,21 @@ async function toolGetOnboarding(args: any, companyId: string): Promise<string> 
   const page = pages[args.workUnitId];
   if (!page) return 'No onboarding page configured for this work unit.';
 
-  let r = '';
-  if (page.welcome) r += `Welcome: ${page.welcome}\n`;
-  if (page.instructions) r += `Instructions: ${page.instructions}\n`;
-  if (page.exampleWorkUrls?.length) r += `Examples: ${page.exampleWorkUrls.join(', ')}\n`;
-  if (page.checklist?.length) r += `Checklist:\n${page.checklist.map((c: string, i: number) => `${i + 1}. ${c}`).join('\n')}`;
+  let r = `Accent: ${page.accentColor || '#a78bfa'}\n`;
+  if (page.blocks?.length) {
+    r += `Blocks (${page.blocks.length}):\n`;
+    page.blocks.forEach((b: any, i: number) => {
+      r += `  ${i + 1}. [${b.type}]`;
+      if (b.content?.heading) r += ` heading="${b.content.heading}"`;
+      if (b.content?.body) r += ` body="${b.content.body.slice(0, 60)}${b.content.body.length > 60 ? '...' : ''}"`;
+      if (b.content?.items?.length) r += ` items=${b.content.items.length}`;
+      if (b.content?.buttonText) r += ` btn="${b.content.buttonText}"`;
+      r += '\n';
+    });
+  }
+  // Legacy fields
+  if (page.welcome) r += `Legacy welcome: ${page.welcome}\n`;
+  if (page.instructions) r += `Legacy instructions: ${page.instructions.slice(0, 80)}\n`;
   return r || 'Onboarding page is empty.';
 }
 
