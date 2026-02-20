@@ -289,14 +289,15 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     const openai = getOpenAIClient();
     let fullContent = '';
     let toolCallsAccumulated: any[] = [];
-    const toolCallLog = new Set<string>();
+    const toolCallCounts = new Map<string, number>();
     let totalToolCalls = 0;
-    const MAX_TOTAL_TOOL_CALLS = 15; // Hard cap across all rounds
+    const MAX_TOTAL_TOOL_CALLS = 50; // Safety cap — high enough to never block real work
+    const MAX_IDENTICAL_CALLS = 3; // Stop if the same exact call repeats this many times
 
     try {
-      // Agent loop — handles tool calls iteratively
+      // Agent loop — runs until the agent is done or safety cap hit
       let loopMessages = [...openaiMessages];
-      let maxLoops = 4; // Tool call rounds — prevent runaway loops
+      let maxLoops = 12; // Enough rounds for large planning chains
 
       while (maxLoops-- > 0) {
         const stream = await openai.chat.completions.create({
@@ -363,16 +364,17 @@ export default async function agentRoutes(fastify: FastifyInstance) {
             toolArgs = JSON.parse(tc.function.arguments);
           } catch {}
 
-          // Hard cap + dedup
+          // Smart dedup: allow different calls, block identical repeats
           totalToolCalls++;
           const callKey = `${toolName}:${JSON.stringify(toolArgs)}`;
+          const repeatCount = toolCallCounts.get(callKey) || 0;
+          toolCallCounts.set(callKey, repeatCount + 1);
           let result: string;
           if (totalToolCalls > MAX_TOTAL_TOOL_CALLS) {
-            result = `STOP: Maximum tool calls reached (${MAX_TOTAL_TOOL_CALLS}). Summarize what you've done so far and ask the user before continuing.`;
-          } else if (toolCallLog.has(callKey)) {
-            result = `Already executed. Do not repeat this call.`;
+            result = `Safety limit reached. Summarize what you've done and ask the user.`;
+          } else if (repeatCount >= MAX_IDENTICAL_CALLS) {
+            result = `This exact call has been made ${repeatCount} times already. Move on.`;
           } else {
-            toolCallLog.add(callKey);
 
             // Send human-readable status indicator (ChatGPT-style)
             const statusLabel = getToolStatusLabel(toolName, toolArgs);
