@@ -858,44 +858,100 @@ export default function WorkUnitDetailPage() {
         </div>
       </div>
 
-      {/* Onboarding Page */}
+      {/* Interview & Onboarding */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden mb-6">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h2 className="font-semibold text-slate-900">Contractor Onboarding Page</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Customize what contractors see before starting this task</p>
+          <h2 className="font-semibold text-slate-900">Interview & Onboarding</h2>
+          <div className="flex items-center gap-3 text-xs">
+            {workUnit.infoCollectionTemplateId ? (
+              <Link href={`/dashboard/templates/${workUnit.infoCollectionTemplateId}`} className="text-slate-500 hover:text-slate-900">
+                Edit interview
+              </Link>
+            ) : (
+              <Link href="/dashboard/templates/new" className="text-slate-500 hover:text-slate-900">
+                Create interview
+              </Link>
+            )}
+            <span className="text-slate-300">·</span>
+            <Link href="/dashboard/sessions" className="text-slate-500 hover:text-slate-900">
+              Sessions
+            </Link>
+            <span className="text-slate-300">·</span>
+            <Link href={`/dashboard/settings/onboarding-editor?workUnitId=${workUnitId}`} className="text-slate-500 hover:text-slate-900">
+              Onboarding page
+            </Link>
+            <span className="text-slate-300">·</span>
+            <Link href="/dashboard/templates" className="text-slate-500 hover:text-slate-900">
+              All templates
+            </Link>
           </div>
-          <Link
-            href={`/dashboard/settings/onboarding-editor?workUnitId=${workUnitId}`}
-            className="px-3 py-1.5 bg-pink-50 text-pink-700 rounded-lg text-xs font-medium hover:bg-pink-100 transition-colors"
-          >
-            Edit Page
-          </Link>
+        </div>
+        <div className="px-6 py-4 text-sm text-slate-600">
+          {workUnit.infoCollectionTemplateId
+            ? 'Screening interview is attached. Candidates complete it before starting work.'
+            : 'No screening interview. Candidates can accept this task directly.'}
         </div>
       </div>
 
-      {/* Matched Candidates */}
-      {candidates.length > 0 && workUnit.status === 'active' && (
+      {/* Candidates — with assign/reject in manual mode */}
+      {candidates.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100">
-            <h2 className="font-semibold text-slate-900">Matched Students ({candidates.length})</h2>
+            <h2 className="font-semibold text-slate-900">
+              Candidates ({candidates.length})
+            </h2>
           </div>
           <div className="divide-y divide-slate-100">
-            {candidates.map(student => (
-              <div key={student.id} className="px-6 py-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-                    <Star className="w-4 h-4 text-blue-600" />
-                  </div>
+            {candidates.map((student: any) => (
+              <div key={student.id} className="px-6 py-4">
+                <div className="flex items-center justify-between">
                   <div>
                     <div className="font-medium text-slate-900">{student.name}</div>
-                    <div className="text-xs text-slate-500">
-                      {student.tier} · {student.tasksCompleted} tasks · {(student.avgQualityScore * 100).toFixed(0)}% quality
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {student.tier} · {student.tasksCompleted} tasks · {Math.round(student.avgQualityScore * 100)}% quality · {Math.round(student.matchScore * 100)}% match
                     </div>
                   </div>
-                </div>
-                <div className="text-sm font-semibold text-blue-600">
-                  {(student.matchScore * 100).toFixed(0)}% match
+                  {(workUnit as any).assignmentMode === 'manual' && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          try {
+                            setActionLoading(true);
+                            const token = await getToken();
+                            if (!token) return;
+                            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+                            const res = await fetch(`${API_URL}/api/executions/assign`, {
+                              method: 'POST',
+                              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ workUnitId, studentId: student.id }),
+                            });
+                            if (!res.ok) {
+                              const data = await res.json();
+                              setError(data.error || 'Failed to assign');
+                              return;
+                            }
+                            await loadData();
+                          } catch (err) {
+                            setError('Failed to assign');
+                          } finally {
+                            setActionLoading(false);
+                          }
+                        }}
+                        disabled={actionLoading}
+                        className="px-3 py-1.5 text-xs font-medium text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        Assign
+                      </button>
+                      <button
+                        onClick={() => {
+                          setCandidates(prev => prev.filter(c => c.id !== student.id));
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium text-slate-400 border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-slate-600"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

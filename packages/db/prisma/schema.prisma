@@ -377,6 +377,7 @@ model CompanyProfile {
   invoices              Invoice[]
   budgetPeriods         BudgetPeriod[]
   transactions          PaymentTransaction[] @relation("CompanyTransactions")
+  agentConversations    AgentConversation[]
 
   @@map("company_profiles")
 }
@@ -436,11 +437,44 @@ model WorkUnit {
   escrow                Escrow?
   milestoneTemplates    MilestoneTemplate[]
   defectAnalyses        DefectAnalysis[]
+  agentConversations    AgentConversation[]
 
   @@index([status, category], map: "idx_workunits_status_category")
   @@index([companyId, status], map: "idx_workunits_company")
   @@index([minTier, complexityScore], map: "idx_workunits_matching")
   @@map("work_units")
+}
+
+// Agent Conversations
+model AgentConversation {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  workUnitId  String?  @map("work_unit_id") @db.Uuid
+  title       String?  @db.VarChar(255)
+  messages    AgentMessage[]
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company     CompanyProfile @relation(fields: [companyId], references: [id])
+  workUnit    WorkUnit?      @relation(fields: [workUnitId], references: [id])
+
+  @@index([companyId, updatedAt], map: "idx_agent_conv_company")
+  @@map("agent_conversations")
+}
+
+model AgentMessage {
+  id             String   @id @default(uuid()) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  role           String   @db.VarChar(20) // user, assistant, tool
+  content        String?  @db.Text
+  toolCalls      Json?    @map("tool_calls")
+  toolResults    Json?    @map("tool_results")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  conversation   AgentConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt], map: "idx_agent_msg_conv")
+  @@map("agent_messages")
 }
 
 // Milestone Templates (per WorkUnit)

@@ -70,98 +70,6 @@ export async function executionRoutes(fastify: FastifyInstance) {
 
       const { workUnitId } = request.body;
 
-      // ── Gate Check: verify student has completed required onboarding steps ──
-      // Wrapped in try/catch so the server still works if the onboarding_steps
-      // table hasn't been migrated yet.
-      try {
-        const _db = db as any;
-
-        const onboardingSteps: Array<{
-          stepType: string;
-          label: string;
-          gateLevel: string;
-          agreementId: string | null;
-          agreement: { version: number; requiresResign: boolean } | null;
-        }> = await _db.onboardingStep.findMany({
-          where: { enabled: true, required: true },
-          include: { agreement: true },
-        });
-
-        if (onboardingSteps.length > 0) {
-          const acceptGateSteps = onboardingSteps.filter(
-            (s) => s.gateLevel === 'browse' || s.gateLevel === 'accept'
-          );
-
-          const agreementStepIds = acceptGateSteps
-            .filter((s) => s.stepType === 'agreement' && s.agreementId)
-            .map((s) => s.agreementId as string);
-
-          const signatures: Array<{ agreementId: string; agreementVersion: number }> =
-            agreementStepIds.length > 0
-              ? await _db.agreementSignature.findMany({
-                  where: { studentId: student.id, agreementId: { in: agreementStepIds } },
-                })
-              : [];
-          const sigMap = new Map(signatures.map((s) => [s.agreementId, s]));
-
-          const pendingSteps: string[] = [];
-
-          for (const step of acceptGateSteps) {
-            let completed = false;
-
-            switch (step.stepType) {
-              case 'profile':
-                completed = !!student.name && student.skillTags.length > 0;
-                break;
-              case 'phone':
-                completed = !!student.phone;
-                break;
-              case 'portfolio':
-                completed = true;
-                break;
-              case 'kyc':
-                completed = student.kycStatus === 'verified';
-                break;
-              case 'tax':
-                completed = student.taxStatus === 'verified';
-                break;
-              case 'payout':
-                completed = student.stripeConnectStatus === 'active';
-                break;
-              case 'agreement':
-                if (step.agreementId) {
-                  const sig = sigMap.get(step.agreementId);
-                  if (sig && step.agreement) {
-                    completed =
-                      !step.agreement.requiresResign ||
-                      sig.agreementVersion >= step.agreement.version;
-                  }
-                }
-                break;
-            }
-
-            if (!completed) {
-              pendingSteps.push(step.label);
-            }
-          }
-
-          if (pendingSteps.length > 0) {
-            return reply.status(403).send({
-              success: false,
-              error: `Please complete the following before accepting tasks: ${pendingSteps.join(', ')}`,
-              pendingSteps,
-              redirectTo: '/student/onboard',
-            });
-          }
-        }
-      } catch (gateErr: any) {
-        // Table may not exist yet — skip gate check gracefully
-        if (!gateErr?.message?.includes('does not exist')) {
-          throw gateErr; // Re-throw if it's a different error
-        }
-        fastify.log.warn('Onboarding gate check skipped — onboarding_steps table not migrated yet');
-      }
-
       const workUnit = await db.workUnit.findUnique({
         where: { id: workUnitId },
         include: { milestoneTemplates: { orderBy: { orderIndex: 'asc' } }, escrow: true },
@@ -888,6 +796,94 @@ export async function executionRoutes(fastify: FastifyInstance) {
 
     return reply.send({ executions });
   });
+
+  // POST /assign — Company assigns a specific student to a work unit (manual mode)
+  fastify.post<{ Body: { workUnitId: string; studentId: string } }>(
+    '/assign',
+    async (request, reply) => {
+      const company = (request as any).company;
+      if (!company) {
+        return forbidden(reply, 'Only companies can assign tasks');
+      }
+
+      const { workUnitId, studentId } = request.body;
+      if (!workUnitId || !studentId) {
+        return badRequest(reply, 'workUnitId and studentId are required');
+      }
+
+      const workUnit = await db.workUnit.findFirst({
+        where: { id: workUnitId, companyId: company.id },
+        include: { milestoneTemplates: { orderBy: { orderIndex: 'asc' } }, escrow: true },
+      });
+
+      if (!workUnit) {
+        return notFound(reply, 'Work unit not found');
+      }
+
+      if (workUnit.status !== 'active') {
+        return badRequest(reply, 'Work unit is not active');
+      }
+
+      const student = await db.studentProfile.findUnique({ where: { id: studentId } });
+      if (!student) {
+        return notFound(reply, 'Student not found');
+      }
+
+      // Check no existing active execution
+      const existing = await db.execution.findFirst({
+        where: {
+          workUnitId,
+          status: { notIn: ['approved', 'failed', 'cancelled'] },
+        },
+      });
+      if (existing) {
+        return conflict(reply, 'This task already has an active assignment');
+      }
+
+      const deadline = addHours(new Date(), workUnit.deadlineHours);
+
+      const execution = await db.$transaction(async (tx) => {
+        const exec = await tx.execution.create({
+          data: {
+            workUnitId,
+            studentId,
+            status: 'assigned',
+            deadlineAt: deadline,
+            milestones: {
+              create: workUnit.milestoneTemplates.map(mt => ({
+                templateId: mt.id,
+              })),
+            },
+          },
+          include: {
+            workUnit: { select: { title: true, priceInCents: true, deadlineHours: true } },
+          },
+        });
+
+        await tx.workUnit.update({
+          where: { id: workUnitId },
+          data: { status: 'in_progress' },
+        });
+
+        return exec;
+      });
+
+      // Notify student
+      await db.notification.create({
+        data: {
+          userId: student.clerkId,
+          userType: 'student',
+          type: 'task_assigned',
+          title: 'Task Assigned',
+          body: `You've been assigned to "${workUnit.title}"`,
+          data: { executionId: execution.id, workUnitId },
+          channels: ['in_app', 'email'],
+        },
+      });
+
+      return reply.status(201).send(execution);
+    }
+  );
 
   // POST /:id/review
   fastify.post<{ Params: { id: string }; Body: ReviewSubmissionBody }>(

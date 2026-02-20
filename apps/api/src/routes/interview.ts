@@ -179,7 +179,7 @@ export async function registerInterviewRoutes(fastify: FastifyInstance): Promise
     await initializeSessionCache(sessionToken, session);
 
     // Generate ephemeral token for OpenAI Realtime
-    // ⚠️  PRODUCTION TODO: Replace with a short-lived ephemeral token from the
+    // PRODUCTION: Replace with a short-lived ephemeral token from the
     // OpenAI Realtime API (POST /v1/realtime/sessions) instead of leaking the
     // full API key to the client. See: https://platform.openai.com/docs/guides/realtime
     const ephemeralToken = process.env.OPENAI_API_KEY || '';

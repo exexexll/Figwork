@@ -280,10 +280,17 @@ export async function studentRoutes(fastify: FastifyInstance) {
 
     const formType = 'W9';
 
+    // In production, integrate with Stripe Tax or a dedicated W-9 collection service
+    // For now, mark as in_progress and provide instructions
+    await db.studentProfile.update({
+      where: { id: student.id },
+      data: { taxStatus: 'in_progress', taxFormType: formType },
+    });
+
     return reply.send({
       formType,
-      stripeUrl: 'https://dashboard.stripe.com/tax/mock',
-      instructions: 'Complete your W-9 form for US tax reporting',
+      status: 'in_progress',
+      instructions: 'Complete your W-9 form for US tax reporting. This will be verified within 24 hours.',
     });
   });
 

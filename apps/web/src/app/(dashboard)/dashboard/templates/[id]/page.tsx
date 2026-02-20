@@ -591,11 +591,11 @@ export default function TemplateDetailPage() {
     <div className="p-8 max-w-4xl">
       {/* Back link */}
       <Link
-        href="/dashboard/settings"
+        href="/dashboard/templates"
         className="inline-flex items-center gap-2 text-sm text-text-secondary hover:text-text-primary mb-6"
       >
         <ArrowLeft className="w-4 h-4" />
-        Back to Settings
+        Back to Interviews
       </Link>
 
       {/* Page Header */}

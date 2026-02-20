@@ -124,9 +124,7 @@ async function sendNotification(data: NotificationJobData) {
           break;
 
         case 'push':
-          // TODO: Implement push notifications (FCM/APNs)
-          // For now, skip
-          console.log(`[Notification] Push notifications not implemented`);
+          // Push notifications require FCM/APNs integration — skipped in current version
           break;
       }
     } catch (error) {

@@ -58,11 +58,11 @@ export default function NewTemplatePage() {
     <div className="p-8 max-w-3xl">
       {/* Back link */}
       <Link
-        href="/dashboard/settings"
+        href="/dashboard/templates"
         className="inline-flex items-center gap-2 text-sm text-text-secondary hover:text-text-primary mb-6"
       >
         <ArrowLeft className="w-4 h-4" />
-        Back to Settings
+        Back to Interviews
       </Link>
 
       {/* Page Header */}
@@ -175,7 +175,7 @@ export default function NewTemplatePage() {
         </Card>
 
         <div className="flex justify-end gap-4">
-          <Link href="/dashboard/settings">
+          <Link href="/dashboard/templates">
             <Button type="button" variant="secondary">
               Cancel
             </Button>

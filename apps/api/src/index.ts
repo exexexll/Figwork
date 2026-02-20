@@ -27,6 +27,7 @@ import { powRoutes } from './routes/pow.js';
 import { paymentRoutes } from './routes/payments.js';
 import adminRoutes from './routes/admin.js';
 import onboardingConfigRoutes from './routes/onboarding-config.js';
+import agentRoutes from './routes/agent.js';
 import { setupWebSocket } from './websocket/index.js';
 
 // Import workers
@@ -196,6 +197,7 @@ await fastify.register(executionRoutes, { prefix: '/api/executions' });
 await fastify.register(powRoutes, { prefix: '/api/pow' });
 await fastify.register(paymentRoutes, { prefix: '/api/payments' });
 await fastify.register(adminRoutes, { prefix: '/api/admin' });
+await fastify.register(agentRoutes, { prefix: '/api/agent' });
 await fastify.register(onboardingConfigRoutes, { prefix: '/api/onboarding-config' });
 
 // Public marketplace search (no auth required)

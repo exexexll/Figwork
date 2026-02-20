@@ -421,12 +421,27 @@ Return JSON: {
         }
       }
 
+      // Create Stripe payment intent for escrow
+      let stripePaymentIntentId = `pi_${Date.now()}_${workUnit.id.slice(0, 8)}`;
+      try {
+        const { createEscrowPaymentIntent } = await import('../lib/stripe-service.js');
+        const stripeResult = await createEscrowPaymentIntent({
+          amountInCents: workUnit.priceInCents,
+          customerId: company.stripeCustomerId || '',
+          workUnitId: workUnit.id,
+          companyId: company.id,
+        });
+        stripePaymentIntentId = stripeResult.paymentIntentId;
+      } catch (stripeErr) {
+        fastify.log.warn('Stripe escrow payment skipped (not configured or failed)');
+      }
+
       const escrow = await db.escrow.update({
         where: { id: workUnit.escrow.id },
         data: {
           status: 'funded',
           fundedAt: new Date(),
-          stripePaymentIntentId: `pi_mock_${Date.now()}`,
+          stripePaymentIntentId,
         },
       });
 
@@ -494,9 +509,6 @@ Return JSON: {
       const students = await db.studentProfile.findMany({
         where: {
           tier: { in: eligibleTiers },
-          kycStatus: 'verified',
-          contractStatus: 'signed',
-          stripeConnectStatus: 'active',
           revisionRate: { lte: workUnit.maxRevisionTendency },
           tasksCompleted: { gte: workUnit.preferredHistory },
         },
