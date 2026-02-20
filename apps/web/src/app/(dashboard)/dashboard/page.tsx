@@ -491,6 +491,11 @@ export default function DashboardPage() {
       }
     }
 
+    // Inject currently selected work unit context so agent knows which WU to operate on
+    if (selectedWU) {
+      fullMessage += `\n\n[CONTEXT: Currently viewing work unit "${selectedWU.title}" (ID: ${selectedWU.id}). Any contracts, onboarding, or edits should apply to THIS work unit only, not other work units.]`;
+    }
+
     const hasAttachments = attachedFiles.length > 0 || pastedImages.length > 0;
     const displayMsg = hasAttachments
       ? `${text}\n${attachedFiles.map(f => `📎 ${f.name}`).join('\n')}${pastedImages.map(img => `🖼 ${img.name}`).join('\n')}`
