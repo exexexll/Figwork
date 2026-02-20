@@ -812,7 +812,10 @@ export default function DashboardPage() {
                         <p className="text-xs text-slate-700">{interviewDetail.name} · {interviewDetail.timeLimitMinutes}min · {interviewDetail.mode}</p>
                         <p className="text-xs text-slate-500">{interviewDetail.questions?.length || 0} questions · voice {interviewDetail.enableVoiceOutput ? 'on' : 'off'}</p>
                         {(interviewDetail.links || []).filter((l: any) => l.isActive).slice(0, 3).map((l: any) => (
-                          <p key={l.id} className="text-slate-500 truncate">/interview/{l.token}</p>
+                          <div key={l.id} className="flex items-center gap-1">
+                            <p className="text-slate-500 truncate text-[10px] flex-1">/interview/{l.token}</p>
+                            <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/interview/${l.token}`); }} className="text-[10px] text-violet-500 hover:text-violet-700 flex-shrink-0">copy</button>
+                          </div>
                         ))}
                         <button onClick={generateLink} className="text-slate-400 hover:text-slate-700">+ link</button>
                       </div>

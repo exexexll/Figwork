@@ -538,7 +538,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // POST /upload-onboarding-file — upload a file for onboarding page blocks
+  // POST /upload-onboarding-file — upload a file for onboarding page blocks (uses Cloudinary)
   fastify.post('/upload-onboarding-file', async (request: FastifyRequest, reply: FastifyReply) => {
     const authResult = await verifyClerkAuth(request, reply);
     if (!authResult) return;
@@ -550,23 +550,42 @@ export default async function agentRoutes(fastify: FastifyInstance) {
       const buffer = await data.toBuffer();
       const filename = data.filename || 'file';
       const mimetype = data.mimetype || '';
+      const isImage = mimetype.startsWith('image/');
 
-      // For now, convert to base64 data URL (works for images and small files)
-      // In production, upload to Cloudinary/S3
-      const base64 = buffer.toString('base64');
-      const dataUrl = `data:${mimetype};base64,${base64}`;
+      // Upload to Cloudinary
+      try {
+        const { cloudinary } = await import('../lib/cloudinary.js');
+        const resourceType = isImage ? 'image' : 'raw';
+        const publicId = `onboarding/${Date.now()}-${filename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
 
-      // For files > 2MB, just return metadata (too big for data URL)
-      if (buffer.length > 2 * 1024 * 1024) {
+        const result = await new Promise<any>((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            { public_id: publicId, resource_type: resourceType },
+            (err: any, res: any) => { if (err) reject(err); else resolve(res); }
+          );
+          stream.end(buffer);
+        });
+
         return reply.send({
-          url: '', // Would be Cloudinary URL in production
+          url: result.secure_url,
           filename,
           size: buffer.length,
-          error: 'File too large for inline storage. In production, this would upload to cloud storage.',
+          mimetype,
+          publicId: result.public_id,
+        });
+      } catch (cloudErr: any) {
+        // Fallback to base64 if Cloudinary is not configured
+        if (buffer.length > 2 * 1024 * 1024) {
+          return reply.status(400).send({ error: 'File too large. Configure Cloudinary for large file uploads.' });
+        }
+        const base64 = buffer.toString('base64');
+        return reply.send({
+          url: `data:${mimetype};base64,${base64}`,
+          filename,
+          size: buffer.length,
+          mimetype,
         });
       }
-
-      return reply.send({ url: dataUrl, filename, size: buffer.length, mimetype });
     } catch (err: any) {
       return reply.status(500).send({ error: err?.message || 'Upload failed' });
     }
