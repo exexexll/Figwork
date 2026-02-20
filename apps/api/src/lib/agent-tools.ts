@@ -589,20 +589,51 @@ async function toolListWorkUnits(args: any, companyId: string): Promise<string> 
 }
 
 async function toolListCandidates(args: any, companyId: string): Promise<string> {
-  const wu = await db.workUnit.findFirst({ where: { id: args.workUnitId, companyId } });
+  const wu = await db.workUnit.findFirst({
+    where: { id: args.workUnitId, companyId },
+    include: { executions: { select: { studentId: true, status: true } } },
+  });
   if (!wu) return 'Work unit not found.';
 
+  // Get tier eligibility
+  const tierOrder = ['novice', 'pro', 'elite'];
+  const minTierIdx = tierOrder.indexOf(wu.minTier);
+  const eligibleTiers = tierOrder.slice(0, minTierIdx + 1);
+  // Actually: novice work can be done by all, pro by pro+elite, elite by elite only
+  const canDoTiers = minTierIdx === 0 ? ['novice', 'pro', 'elite'] : minTierIdx === 1 ? ['pro', 'elite'] : ['elite'];
+
+  // Get already assigned student IDs
+  const assignedIds = wu.executions
+    .filter(e => !['failed', 'cancelled'].includes(e.status))
+    .map(e => e.studentId);
+
   const students = await db.studentProfile.findMany({
-    where: { tier: { in: ['novice', 'pro', 'elite'] } },
-    select: { id: true, name: true, tier: true, tasksCompleted: true, avgQualityScore: true, skillTags: true },
-    take: 10,
-    orderBy: { avgQualityScore: 'desc' },
+    where: {
+      tier: { in: canDoTiers },
+      id: { notIn: assignedIds.length > 0 ? assignedIds : ['none'] },
+    },
+    select: { id: true, name: true, tier: true, tasksCompleted: true, avgQualityScore: true, skillTags: true, onTimeRate: true },
+    take: 15,
+    orderBy: [{ avgQualityScore: 'desc' }, { tasksCompleted: 'desc' }],
   });
 
-  if (students.length === 0) return 'No matching candidates found.';
+  if (students.length === 0) return 'No matching candidates found for this task.';
 
-  return students.map(s =>
-    `${s.name} — ${s.tier}, ${s.tasksCompleted} tasks, ${Math.round(s.avgQualityScore * 100)}% quality [${s.id.slice(0, 8)}]`
+  // Score candidates by skill overlap
+  const requiredSkills = (wu.requiredSkills || []).map((s: string) => s.toLowerCase());
+
+  const scored = students.map(s => {
+    const studentSkills = (s.skillTags || []).map((sk: string) => sk.toLowerCase());
+    const overlap = requiredSkills.filter((rs: string) => studentSkills.some((ss: string) => ss.includes(rs) || rs.includes(ss))).length;
+    const skillScore = requiredSkills.length > 0 ? overlap / requiredSkills.length : 0.5;
+    const qualityScore = s.avgQualityScore;
+    const expScore = Math.min(s.tasksCompleted / 10, 1);
+    const total = skillScore * 0.4 + qualityScore * 0.35 + expScore * 0.15 + s.onTimeRate * 0.1;
+    return { ...s, matchScore: total, skillOverlap: overlap };
+  }).sort((a, b) => b.matchScore - a.matchScore);
+
+  return scored.map(s =>
+    `${s.name} — ${s.tier}, ${s.tasksCompleted} tasks, ${Math.round(s.avgQualityScore * 100)}% quality, ${Math.round(s.matchScore * 100)}% match${s.skillOverlap > 0 ? `, ${s.skillOverlap}/${requiredSkills.length} skills` : ''} [${s.id.slice(0, 8)}]`
   ).join('\n');
 }
 

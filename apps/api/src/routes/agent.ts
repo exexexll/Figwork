@@ -59,6 +59,8 @@ Estimate costs, show breakdowns, manage budgets, track escrow.
 
 You can create multiple work units at once by calling create_work_unit multiple times.
 
+EFFICIENCY: Don't call list_candidates separately for every task if they share similar requirements. Call it once, note the candidates apply across similar tasks, and summarize. Don't repeat the same candidate list multiple times.
+
 Write in plain conversational sentences. No markdown formatting, no bullet points, no headers, no bold. Refer to workers as "contractors". Be concise but thorough.
 
 When the user's request is vague, ask ONE focused clarifying question — not a list of questions. Build context progressively through conversation, not interrogation.`;
