@@ -100,6 +100,8 @@ export default function DashboardPage() {
   const [saving, setSaving] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [contracts, setContracts] = useState<any[]>([]);
+  const [expandedContract, setExpandedContract] = useState<any>(null);
+  const [editingContractContent, setEditingContractContent] = useState('');
 
   // Onboarding editor state (block-based)
   type BlockType = 'hero' | 'text' | 'image' | 'video' | 'file' | 'checklist' | 'cta' | 'divider';
@@ -351,6 +353,55 @@ export default function DashboardPage() {
 
   function obUpdateBlock(id: string, key: string, value: any) {
     setObBlocks(prev => prev.map(b => b.id === id ? { ...b, content: { ...b.content, [key]: value } } : b));
+  }
+
+  async function loadContract(id: string) {
+    try {
+      const t = await getToken(); if (!t) return;
+      // Load full contract content via the agent contracts endpoint
+      const res = await fetch(`${API_URL}/api/agent/contracts`, { headers: { Authorization: `Bearer ${t}` } });
+      if (res.ok) {
+        const data = await res.json();
+        const contract = (data.contracts || []).find((c: any) => c.id === id);
+        if (contract) {
+          setExpandedContract(contract);
+          setEditingContractContent(contract.content || '');
+        }
+      }
+    } catch {}
+  }
+
+  async function saveContract() {
+    if (!expandedContract) return;
+    try {
+      const t = await getToken(); if (!t) return;
+      // Use the agent chat to update — or call the API directly
+      // For now, update via Prisma through a simple fetch
+      await fetch(`${API_URL}/api/agent/chat`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `__internal: update contract ${expandedContract.id} with new content`,
+        }),
+      }).catch(() => null);
+      // Simpler: use the update_contract tool logic via direct DB update
+      // Actually let's add a proper endpoint
+    } catch {}
+  }
+
+  async function updateContractDirect(id: string, data: { content?: string; title?: string; status?: string }) {
+    try {
+      const t = await getToken(); if (!t) return;
+      await fetch(`${API_URL}/api/agent/contracts/${id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      loadContracts();
+      if (expandedContract?.id === id) {
+        setExpandedContract((prev: any) => prev ? { ...prev, ...data } : null);
+      }
+    } catch {}
   }
 
   async function loadContracts() {
@@ -774,45 +825,102 @@ export default function DashboardPage() {
                 {/* Legal */}
                 {panelTab === 'legal' && (
                   <div className="space-y-4">
-                    <div>
-                      <span className="text-slate-500 text-xs block mb-1.5">Contracts</span>
-                      <p className="text-[11px] text-slate-400 mb-2">Contractors must sign active contracts before starting work.</p>
-                      {contracts.length > 0 ? contracts.map((c: any) => (
-                        <div key={c.id} className="py-2 border-b border-slate-100 last:border-0">
-                          <p className="text-xs text-slate-800">{c.title}</p>
-                          <p className="text-[11px] text-slate-500">v{c.version} · {c.status} · {c._count?.signatures || 0} signed</p>
+                    {expandedContract ? (
+                      /* Expanded contract view */
+                      <div className="space-y-3">
+                        <button onClick={() => setExpandedContract(null)} className="text-xs text-slate-500 hover:text-slate-800">← back to contracts</button>
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <input
+                              value={expandedContract.title}
+                              onChange={e => setExpandedContract((prev: any) => prev ? { ...prev, title: e.target.value } : null)}
+                              className="text-sm font-medium text-slate-900 bg-transparent border-0 border-b border-slate-200 focus:border-slate-400 focus:ring-0 w-full py-0.5"
+                            />
+                            <p className="text-[11px] text-slate-500 mt-1">v{expandedContract.version} · {expandedContract.status} · {expandedContract._count?.signatures || 0} signed</p>
+                          </div>
                         </div>
-                      )) : <p className="text-xs text-slate-400">No contracts yet</p>}
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-100 space-y-2">
-                      <button onClick={() => setInput(`Create a contractor agreement for "${selectedWU?.title}" that covers scope of work, deliverables, IP assignment, confidentiality, payment terms, and termination. Attach it to this work unit.`)}
-                        className="block text-xs text-slate-600 hover:text-slate-900">
-                        create task-specific contract →
-                      </button>
-                      <button onClick={() => setInput('Create a general NDA for all contractors')}
-                        className="block text-xs text-slate-600 hover:text-slate-900">
-                        create NDA →
-                      </button>
-                      <button onClick={() => setInput(`Draft a statement of work for "${selectedWU?.title}" — $${((selectedWU?.priceInCents || 0) / 100).toFixed(0)}, ${selectedWU?.deadlineHours}h`)}
-                        className="block text-xs text-slate-600 hover:text-slate-900">
-                        draft SOW →
-                      </button>
-                      <button onClick={() => setInput('List all contracts and their signature status')}
-                        className="block text-xs text-slate-600 hover:text-slate-900">
-                        view all contracts →
-                      </button>
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-100">
-                      <span className="text-slate-500 text-xs block mb-1.5">Compliance</span>
-                      <div className="space-y-1 text-xs text-slate-600">
-                        <p>W-9 — collected at contractor onboarding</p>
-                        <p>1099-NEC — auto-generated for $600+ earnings</p>
-                        <p>KYC — Stripe Identity verification</p>
-                        <p>IC classification — independent contractor</p>
+                        <textarea
+                          value={editingContractContent}
+                          onChange={e => setEditingContractContent(e.target.value)}
+                          className="w-full text-xs text-slate-700 bg-white border border-slate-200 rounded-lg p-3 focus:ring-1 focus:ring-violet-300 focus:border-violet-300 resize-none leading-relaxed"
+                          rows={16}
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={async () => {
+                              await updateContractDirect(expandedContract.id, { content: editingContractContent, title: expandedContract.title });
+                            }}
+                            className="flex-1 py-1.5 text-xs text-white bg-slate-900 rounded hover:bg-slate-800 transition-colors"
+                          >
+                            Save changes
+                          </button>
+                          {expandedContract.status === 'draft' && (
+                            <button
+                              onClick={async () => {
+                                await updateContractDirect(expandedContract.id, { status: 'active' });
+                              }}
+                              className="py-1.5 px-3 text-xs text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-50 transition-colors"
+                            >
+                              Activate
+                            </button>
+                          )}
+                          {expandedContract.status === 'active' && (
+                            <button
+                              onClick={async () => {
+                                await updateContractDirect(expandedContract.id, { status: 'archived' });
+                              }}
+                              className="py-1.5 px-3 text-xs text-red-500 border border-red-200 rounded hover:bg-red-50 transition-colors"
+                            >
+                              Archive
+                            </button>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => setInput(`Review and improve this contract: "${expandedContract.title}". Check for legal completeness and suggest improvements.`)}
+                          className="w-full text-xs text-slate-500 border border-slate-200 rounded py-1.5 hover:bg-white transition-colors flex items-center justify-center gap-1">
+                          <Sparkles className="w-3 h-3" /> AI review this contract
+                        </button>
                       </div>
-                    </div>
+                    ) : (
+                      /* Contract list */
+                      <>
+                        <div>
+                          <span className="text-slate-500 text-xs block mb-1.5">Contracts</span>
+                          <p className="text-[11px] text-slate-400 mb-2">Click to view and edit. Activate for contractors to sign.</p>
+                          {contracts.length > 0 ? contracts.map((c: any) => (
+                            <button key={c.id} onClick={() => loadContract(c.id)} className="w-full text-left py-2 border-b border-slate-100 last:border-0 hover:bg-white rounded transition-colors">
+                              <p className="text-xs text-slate-800">{c.title}</p>
+                              <p className="text-[11px] text-slate-500">v{c.version} · <span className={c.status === 'active' ? 'text-emerald-600' : c.status === 'draft' ? 'text-amber-600' : 'text-slate-400'}>{c.status}</span> · {c._count?.signatures || 0} signed</p>
+                            </button>
+                          )) : <p className="text-xs text-slate-400">No contracts yet</p>}
+                        </div>
+
+                        <div className="pt-3 border-t border-slate-100 space-y-2">
+                          <button onClick={() => setInput(`Create a contractor agreement for "${selectedWU?.title}" that covers scope of work, deliverables, IP assignment, confidentiality, payment terms, and termination. Attach it to this work unit.`)}
+                            className="block text-xs text-slate-600 hover:text-slate-900">
+                            create task-specific contract →
+                          </button>
+                          <button onClick={() => setInput('Create a general NDA for all contractors')}
+                            className="block text-xs text-slate-600 hover:text-slate-900">
+                            create NDA →
+                          </button>
+                          <button onClick={() => setInput(`Draft a statement of work for "${selectedWU?.title}" — $${((selectedWU?.priceInCents || 0) / 100).toFixed(0)}, ${selectedWU?.deadlineHours}h`)}
+                            className="block text-xs text-slate-600 hover:text-slate-900">
+                            draft SOW →
+                          </button>
+                        </div>
+
+                        <div className="pt-3 border-t border-slate-100">
+                          <span className="text-slate-500 text-xs block mb-1.5">Compliance</span>
+                          <div className="space-y-1 text-xs text-slate-600">
+                            <p>W-9 — collected at contractor onboarding</p>
+                            <p>1099-NEC — auto-generated for $600+ earnings</p>
+                            <p>KYC — Stripe Identity verification</p>
+                            <p>IC classification — independent contractor</p>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 

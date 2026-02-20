@@ -559,6 +559,29 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     });
   });
 
+  // PUT /contracts/:id — update a contract
+  fastify.put<{ Params: { id: string } }>('/contracts/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    const authResult = await verifyClerkAuth(request, reply);
+    if (!authResult) return;
+
+    const { id } = request.params;
+    const { content, title, status } = request.body as { content?: string; title?: string; status?: string };
+
+    const existing = await db.legalAgreement.findUnique({ where: { id } });
+    if (!existing) return reply.status(404).send({ error: 'Contract not found' });
+
+    const data: any = {};
+    if (title !== undefined) data.title = title;
+    if (status !== undefined) data.status = status;
+    if (content !== undefined) {
+      data.content = content;
+      if (content !== existing.content) data.version = existing.version + 1;
+    }
+
+    const updated = await db.legalAgreement.update({ where: { id }, data });
+    return reply.send(updated);
+  });
+
   // GET /contracts — list legal agreements
   fastify.get('/contracts', async (request: FastifyRequest, reply: FastifyReply) => {
     const authResult = await verifyClerkAuth(request, reply);
