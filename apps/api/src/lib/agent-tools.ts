@@ -568,6 +568,16 @@ async function toolUpdateWorkUnit(args: any, companyId: string): Promise<string>
 
   const updated = await db.workUnit.update({ where: { id: workUnitId }, data });
 
+  // Sync escrow if price changed
+  if (data.priceInCents) {
+    const feePercent = updated.platformFeePercent || 0.15;
+    const fee = Math.round(data.priceInCents * feePercent);
+    await db.escrow.updateMany({
+      where: { workUnitId },
+      data: { amountInCents: data.priceInCents, platformFeeInCents: fee, netAmountInCents: data.priceInCents - fee },
+    });
+  }
+
   const changes = Object.keys(data).filter(k => k !== 'publishedAt').join(', ');
   return `Updated "${updated.title}" (${changes}). Status: ${updated.status}, $${(updated.priceInCents / 100).toFixed(2)}.`;
 }

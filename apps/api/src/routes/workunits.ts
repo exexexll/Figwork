@@ -336,6 +336,19 @@ Return JSON: {
         },
       });
 
+      // Sync escrow if price changed
+      if (updates.priceInCents && updates.priceInCents !== existing.priceInCents) {
+        const feePercent = updated.platformFeePercent || 0.15;
+        const fee = Math.round(updates.priceInCents * feePercent);
+        await db.escrow.updateMany({
+          where: { workUnitId: id },
+          data: { amountInCents: updates.priceInCents, platformFeeInCents: fee, netAmountInCents: updates.priceInCents - fee },
+        });
+        // Reload with updated escrow
+        const refreshed = await db.workUnit.findUnique({ where: { id }, include: { milestoneTemplates: { orderBy: { orderIndex: 'asc' } }, escrow: true } });
+        return reply.send(refreshed);
+      }
+
       return reply.send(updated);
     }
   );
