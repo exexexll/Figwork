@@ -102,7 +102,7 @@ export default function DashboardPage() {
   const [contracts, setContracts] = useState<any[]>([]);
 
   // Onboarding editor state (block-based)
-  type BlockType = 'hero' | 'text' | 'image' | 'checklist' | 'cta' | 'divider';
+  type BlockType = 'hero' | 'text' | 'image' | 'video' | 'file' | 'checklist' | 'cta' | 'divider';
   interface PageBlock { id: string; type: BlockType; content: Record<string, any>; }
   const [obBlocks, setObBlocks] = useState<PageBlock[]>([]);
   const [obAccentColor, setObAccentColor] = useState('#a78bfa');
@@ -324,6 +324,8 @@ export default function DashboardPage() {
       hero: { heading: 'Welcome', subheading: 'Brief intro...' },
       text: { heading: '', body: 'Content...' },
       image: { url: '', alt: 'Image', caption: '' },
+      video: { url: '', title: 'Video' },
+      file: { url: '', filename: 'Document', description: '' },
       checklist: { heading: 'Checklist', items: ['Item 1', 'Item 2'] },
       cta: { heading: 'Ready?', body: 'Make sure to review everything.', buttonText: "I'm Ready" },
       divider: {},
@@ -859,7 +861,7 @@ export default function DashboardPage() {
                           <span className="text-[10px] text-slate-400 block mb-1">Add block</span>
                           <div className="flex flex-wrap gap-1">
                             {([
-                              ['hero', '✦'], ['text', '¶'], ['image', '🖼'], ['checklist', '☑'], ['cta', '→'], ['divider', '—']
+                              ['hero', '✦'], ['text', '¶'], ['image', '🖼'], ['video', '▶'], ['file', '📎'], ['checklist', '☑'], ['cta', '→'], ['divider', '—']
                             ] as [BlockType, string][]).map(([t, icon]) => (
                               <button key={t} onClick={() => obAddBlock(t)}
                                 className="text-[10px] px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-white hover:border-slate-300 transition-colors">
@@ -1061,6 +1063,21 @@ function PanelBlockEditor({ block, onChange }: { block: { id: string; type: stri
           <div><label className={labelCls}>Button text</label><input type="text" value={block.content.buttonText || ''} onChange={e => onChange(block.id, 'buttonText', e.target.value)} className={inputCls} /></div>
         </div>
       );
+    case 'video':
+      return (
+        <div className="space-y-2">
+          <div><label className={labelCls}>Video URL</label><input type="url" value={block.content.url || ''} onChange={e => onChange(block.id, 'url', e.target.value)} className={inputCls} placeholder="https://youtube.com/watch?v=..." /></div>
+          <div><label className={labelCls}>Title</label><input type="text" value={block.content.title || ''} onChange={e => onChange(block.id, 'title', e.target.value)} className={inputCls} /></div>
+        </div>
+      );
+    case 'file':
+      return (
+        <div className="space-y-2">
+          <div><label className={labelCls}>File URL</label><input type="url" value={block.content.url || ''} onChange={e => onChange(block.id, 'url', e.target.value)} className={inputCls} placeholder="https://drive.google.com/..." /></div>
+          <div><label className={labelCls}>Filename</label><input type="text" value={block.content.filename || ''} onChange={e => onChange(block.id, 'filename', e.target.value)} className={inputCls} /></div>
+          <div><label className={labelCls}>Description</label><input type="text" value={block.content.description || ''} onChange={e => onChange(block.id, 'description', e.target.value)} className={inputCls} /></div>
+        </div>
+      );
     case 'divider':
       return <div className="text-[10px] text-slate-400 text-center py-1">— divider —</div>;
     default:
@@ -1117,6 +1134,30 @@ function PanelBlockPreview({ block, accentColor, companyName }: { block: { id: s
           <span className="inline-block mt-1 px-3 py-1 rounded text-white text-[10px] font-medium" style={{ backgroundColor: accentColor }}>
             {block.content.buttonText || 'Continue'}
           </span>
+        </div>
+      );
+    case 'video':
+      return (
+        <div>
+          {block.content.title && <p className="text-xs font-semibold text-slate-800 mb-1">{block.content.title}</p>}
+          {block.content.url ? (
+            <div className="rounded overflow-hidden bg-slate-900 aspect-video flex items-center justify-center">
+              <a href={block.content.url} target="_blank" rel="noopener noreferrer" className="text-white text-xs flex items-center gap-1">▶ Watch Video</a>
+            </div>
+          ) : (
+            <div className="py-3 text-center border border-dashed border-slate-200 rounded"><p className="text-[10px] text-slate-400">No video URL</p></div>
+          )}
+        </div>
+      );
+    case 'file':
+      return (
+        <div className="flex items-start gap-2 p-2 bg-slate-50 rounded">
+          <FileText className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-medium text-slate-700">{block.content.filename || 'Document'}</p>
+            {block.content.description && <p className="text-[10px] text-slate-500">{block.content.description}</p>}
+            {block.content.url && <a href={block.content.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-violet-500 hover:underline">Download →</a>}
+          </div>
         </div>
       );
     case 'divider':
