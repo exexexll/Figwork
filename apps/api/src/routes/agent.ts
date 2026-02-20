@@ -31,6 +31,10 @@ You can:
 
 When the user asks you to do something, use the right tool. When creating or spending, confirm details first in one short sentence, then act. After completing an action, briefly state what happened and suggest the logical next step.
 
+You can create multiple work units in a single response by calling create_work_unit multiple times. When the user describes a campaign or batch of tasks, break it down and create each one.
+
+When asked to write a contract, statement of work, or master service agreement, use the draft_sow tool and write a complete, professional document — not a placeholder. Include: parties, scope of work, deliverables, timeline, payment terms, intellectual property assignment, confidentiality, termination, liability, dispute resolution, and signatures. Use the company name and any task details available. This should be ready to sign.
+
 Write in plain short sentences. No markdown formatting, no bullet points, no headers. Just conversational text. Refer to workers as "contractors".`;
 }
 
@@ -169,7 +173,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     try {
       // Agent loop — handles tool calls iteratively
       let loopMessages = [...openaiMessages];
-      let maxLoops = 5;
+      let maxLoops = 8; // Allow more tool rounds for complex multi-step tasks
 
       while (maxLoops-- > 0) {
         const stream = await openai.chat.completions.create({
@@ -177,6 +181,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
           messages: loopMessages,
           tools: TOOL_DEFINITIONS,
           stream: true,
+          max_tokens: 4096,
         });
 
         let currentContent = '';
@@ -300,9 +305,12 @@ export default async function agentRoutes(fastify: FastifyInstance) {
       reply.raw.write(`data: ${JSON.stringify({ type: 'done', conversationId: conversation.id })}\n\n`);
       reply.raw.end();
     } catch (err: any) {
-      console.error('[Agent] Error:', err);
-      reply.raw.write(`data: ${JSON.stringify({ type: 'error', message: err.message || 'Agent error' })}\n\n`);
-      reply.raw.end();
+      console.error('[Agent] Error:', err?.message || err);
+      try {
+        reply.raw.write(`data: ${JSON.stringify({ type: 'error', message: err?.message?.slice(0, 200) || 'Agent error' })}\n\n`);
+        reply.raw.write(`data: ${JSON.stringify({ type: 'done', conversationId: conversation.id })}\n\n`);
+      } catch {} // Stream may already be closed
+      try { reply.raw.end(); } catch {}
     }
   });
 

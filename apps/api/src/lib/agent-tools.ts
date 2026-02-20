@@ -472,12 +472,49 @@ async function toolEstimateCost(args: any): Promise<string> {
 
 async function toolDraftSOW(args: any): Promise<string> {
   const { projectName, scope, deliverables, timeline, budget } = args;
-  let sow = `STATEMENT OF WORK\n\nProject: ${projectName}\n\nScope:\n${scope}\n`;
-  if (deliverables?.length) sow += `\nDeliverables:\n${deliverables.map((d: string, i: number) => `${i + 1}. ${d}`).join('\n')}\n`;
-  if (timeline) sow += `\nTimeline: ${timeline}\n`;
-  if (budget) sow += `\nBudget: ${budget}\n`;
-  sow += `\nTerms: Payment upon approval of each deliverable. Escrow-protected through Figwork. IP transfers to client upon payment.`;
-  return sow;
+  const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  let doc = `STATEMENT OF WORK
+
+Effective Date: ${date}
+Project: ${projectName}
+
+1. SCOPE OF WORK
+${scope}
+
+2. DELIVERABLES
+${deliverables?.length ? deliverables.map((d: string, i: number) => `   ${i + 1}. ${d}`).join('\n') : '   As described in the scope above.'}
+
+3. TIMELINE
+${timeline || 'Per individual task deadlines set at assignment.'}
+
+4. COMPENSATION
+${budget || 'Per task pricing as listed on the Figwork platform.'} All payments are escrow-protected and released only upon approval of deliverables.
+
+5. INTELLECTUAL PROPERTY
+All work product, including but not limited to designs, code, copy, and data, shall become the exclusive property of the Client upon final payment. The Contractor retains no rights to the deliverables.
+
+6. CONFIDENTIALITY
+The Contractor agrees to hold in confidence all proprietary information disclosed during the engagement and shall not share, publish, or use such information for any purpose other than completing the assigned work.
+
+7. PAYMENT TERMS
+Payment is held in escrow by Figwork and released within 48 hours of deliverable approval. Platform fees are deducted before payout. Instant payout is available for eligible contractors.
+
+8. REVISIONS
+The Client may request revisions up to the limit set per task. Additional revisions beyond the limit may be negotiated as a new task.
+
+9. TERMINATION
+Either party may terminate this SOW at any time. If terminated before completion, payment is prorated based on approved milestones. Escrow funds for incomplete work are returned to the Client.
+
+10. DISPUTE RESOLUTION
+Disputes are mediated through the Figwork platform with a 72-hour resolution SLA. If mediation fails, disputes are resolved through binding arbitration.
+
+11. LIABILITY
+Figwork acts as a marketplace facilitator and is not liable for the quality or timeliness of work beyond its QA and verification systems. Maximum liability is limited to the task payment amount.
+
+This SOW is governed by Figwork's Master Service Agreement.`;
+
+  return doc;
 }
 
 async function toolListWorkUnits(args: any, companyId: string): Promise<string> {

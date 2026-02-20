@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
-import { Send, Plus, ChevronDown, PanelRight, X } from 'lucide-react';
+import { Send, Plus, ChevronDown, X, GripVertical, Check } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -20,12 +20,12 @@ interface Conversation {
   updatedAt: string;
 }
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
-  return `${Math.floor(diff / 86400000)}d`;
+function timeAgo(d: string): string {
+  const ms = Date.now() - new Date(d).getTime();
+  if (ms < 60000) return 'now';
+  if (ms < 3600000) return `${Math.floor(ms / 60000)}m`;
+  if (ms < 86400000) return `${Math.floor(ms / 3600000)}h`;
+  return `${Math.floor(ms / 86400000)}d`;
 }
 
 export default function DashboardPage() {
@@ -35,850 +35,504 @@ export default function DashboardPage() {
   const [streaming, setStreaming] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [showConversations, setShowConversations] = useState(false);
-  const [showSidePanel, setShowSidePanel] = useState(false);
+  const [showConvList, setShowConvList] = useState(false);
+
+  // Panel state
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelWidth, setPanelWidth] = useState(420);
+  const [panelTab, setPanelTab] = useState<'overview' | 'execution' | 'financial'>('overview');
   const [sideData, setSideData] = useState<any>(null);
-  const [selectedWorkUnit, setSelectedWorkUnit] = useState<any>(null);
-  const [sidePanelTab, setSidePanelTab] = useState<'overview' | 'execution' | 'financial'>('overview');
-  const [selectedInterviewDetail, setSelectedInterviewDetail] = useState<any>(null);
+  const [selectedWU, setSelectedWU] = useState<any>(null);
+  const [interviewDetail, setInterviewDetail] = useState<any>(null);
+  const [pendingChanges, setPendingChanges] = useState<Record<string, any>>({});
+  const [saving, setSaving] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const resizing = useRef(false);
 
-  useEffect(() => {
-    loadConversations();
-  }, []);
+  useEffect(() => { loadConversations(); loadPanel(); }, []);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  // ── Data loading ──
 
   async function loadConversations() {
     try {
-      const token = await getToken();
-      if (!token) return;
-      const res = await fetch(`${API_URL}/api/agent/conversations`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setConversations(data.conversations || []);
-      }
+      const t = await getToken(); if (!t) return;
+      const r = await fetch(`${API_URL}/api/agent/conversations`, { headers: { Authorization: `Bearer ${t}` } });
+      if (r.ok) { const d = await r.json(); setConversations(d.conversations || []); }
     } catch {}
   }
 
   async function loadConversation(id: string) {
     try {
-      const token = await getToken();
-      if (!token) return;
-      const res = await fetch(`${API_URL}/api/agent/conversations/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setConversationId(data.id);
-        setMessages(
-          (data.messages || []).map((m: any) => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            toolName: m.toolCalls?.[0]?.function?.name,
-            toolResult: m.toolResults?.content,
-          }))
-        );
+      const t = await getToken(); if (!t) return;
+      const r = await fetch(`${API_URL}/api/agent/conversations/${id}`, { headers: { Authorization: `Bearer ${t}` } });
+      if (r.ok) {
+        const d = await r.json();
+        setConversationId(d.id);
+        setMessages((d.messages || []).map((m: any) => ({
+          id: m.id, role: m.role, content: m.content,
+          toolName: m.toolCalls?.[0]?.function?.name,
+          toolResult: m.toolResults?.content,
+        })));
       }
     } catch {}
-    setShowConversations(false);
+    setShowConvList(false);
   }
 
-  function startNewConversation() {
-    setConversationId(null);
-    setMessages([]);
-    setShowConversations(false);
-    inputRef.current?.focus();
-  }
-
-  async function deleteConversation(id: string) {
+  async function loadPanel() {
     try {
-      const token = await getToken();
-      if (!token) return;
-      await fetch(`${API_URL}/api/agent/conversations/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+      const t = await getToken(); if (!t) return;
+      const [wuRes, billingRes, tplRes] = await Promise.all([
+        fetch(`${API_URL}/api/workunits`, { headers: { Authorization: `Bearer ${t}` } }).then(r => r.ok ? r.json() : []),
+        fetch(`${API_URL}/api/payments/company/balance`, { headers: { Authorization: `Bearer ${t}` } }).then(r => r.ok ? r.json() : null),
+        fetch(`${API_URL}/api/templates`, { headers: { Authorization: `Bearer ${t}` } }).then(r => r.ok ? r.json() : { data: [] }).catch(() => ({ data: [] })),
+      ]);
+      setSideData({
+        workUnits: Array.isArray(wuRes) ? wuRes : [],
+        billing: billingRes,
+        templates: (tplRes?.data || []).map((t: any) => ({ id: t.id, name: t.name })),
       });
-      if (conversationId === id) startNewConversation();
+    } catch {}
+  }
+
+  async function selectWU(id: string) {
+    try {
+      const t = await getToken(); if (!t) return;
+      const r = await fetch(`${API_URL}/api/workunits/${id}`, { headers: { Authorization: `Bearer ${t}` } });
+      if (r.ok) {
+        const d = await r.json();
+        setSelectedWU(d);
+        setPanelTab('overview');
+        setPendingChanges({});
+        if (d.infoCollectionTemplateId) loadInterview(d.infoCollectionTemplateId);
+        else setInterviewDetail(null);
+      }
+    } catch {}
+  }
+
+  async function loadInterview(id: string) {
+    try {
+      const t = await getToken(); if (!t) return;
+      const r = await fetch(`${API_URL}/api/templates/${id}`, { headers: { Authorization: `Bearer ${t}` } });
+      if (r.ok) { const d = await r.json(); setInterviewDetail(d.data || d); }
+    } catch {}
+  }
+
+  // ── Panel actions ──
+
+  function stageChange(field: string, value: any) {
+    setPendingChanges(prev => ({ ...prev, [field]: value }));
+  }
+
+  async function confirmChanges() {
+    if (!selectedWU || Object.keys(pendingChanges).length === 0) return;
+    setSaving(true);
+    try {
+      const t = await getToken(); if (!t) return;
+      await fetch(`${API_URL}/api/workunits/${selectedWU.id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(pendingChanges),
+      });
+      setPendingChanges({});
+      await selectWU(selectedWU.id);
+    } catch {}
+    setSaving(false);
+  }
+
+  async function reviewExec(execId: string, verdict: string) {
+    try {
+      const t = await getToken(); if (!t) return;
+      await fetch(`${API_URL}/api/executions/${execId}/review`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verdict }),
+      });
+      if (selectedWU) selectWU(selectedWU.id);
+    } catch {}
+  }
+
+  async function approveApp(execId: string) {
+    try {
+      const t = await getToken(); if (!t) return;
+      await fetch(`${API_URL}/api/executions/${execId}/approve-application`, {
+        method: 'POST', headers: { Authorization: `Bearer ${t}` },
+      });
+      if (selectedWU) selectWU(selectedWU.id);
+    } catch {}
+  }
+
+  async function fundAndPublish() {
+    if (!selectedWU) return;
+    try {
+      const t = await getToken(); if (!t) return;
+      await fetch(`${API_URL}/api/workunits/${selectedWU.id}/fund-escrow`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      });
+      await fetch(`${API_URL}/api/workunits/${selectedWU.id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'active' }),
+      });
+      await selectWU(selectedWU.id);
+      loadPanel();
+    } catch {}
+  }
+
+  async function generateLink() {
+    if (!interviewDetail) return;
+    try {
+      const t = await getToken(); if (!t) return;
+      await fetch(`${API_URL}/api/templates/${interviewDetail.id}/links`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ linkType: 'permanent' }),
+      });
+      loadInterview(interviewDetail.id);
+    } catch {}
+  }
+
+  // ── Chat ──
+
+  function startNew() { setConversationId(null); setMessages([]); setShowConvList(false); inputRef.current?.focus(); }
+
+  async function deleteConv(id: string) {
+    try {
+      const t = await getToken(); if (!t) return;
+      await fetch(`${API_URL}/api/agent/conversations/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${t}` } });
+      if (conversationId === id) startNew();
       loadConversations();
     } catch {}
   }
 
-  async function loadSidePanel() {
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      const [wuRes, billingRes, templatesRes] = await Promise.all([
-        fetch(`${API_URL}/api/workunits`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.ok ? r.json() : []),
-        fetch(`${API_URL}/api/payments/company/balance`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.ok ? r.json() : null),
-        fetch(`${API_URL}/api/templates`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.ok ? r.json() : { data: [] }).catch(() => ({ data: [] })),
-      ]);
-
-      setSideData({
-        workUnits: Array.isArray(wuRes) ? wuRes : [],
-        billing: billingRes,
-        templates: (templatesRes?.data || []).map((t: any) => ({ id: t.id, name: t.name })),
-      });
-    } catch {}
-  }
-
-  async function selectWorkUnit(id: string) {
-    try {
-      const token = await getToken();
-      if (!token) return;
-      const res = await fetch(`${API_URL}/api/workunits/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedWorkUnit(data);
-        setSidePanelTab('overview');
-        // Load interview detail if attached
-        if (data.infoCollectionTemplateId) {
-          loadInterviewDetail(data.infoCollectionTemplateId);
-        } else {
-          setSelectedInterviewDetail(null);
-        }
-      }
-    } catch {}
-  }
-
-  async function loadInterviewDetail(templateId: string) {
-    try {
-      const token = await getToken();
-      if (!token) return;
-      const res = await fetch(`${API_URL}/api/templates/${templateId}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedInterviewDetail(data.data || data);
-      }
-    } catch {}
-  }
-
-  async function updateInterviewField(field: string, value: any) {
-    if (!selectedInterviewDetail) return;
-    try {
-      const token = await getToken();
-      if (!token) return;
-      await fetch(`${API_URL}/api/templates/${selectedInterviewDetail.id}`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [field]: value }),
-      });
-      setSelectedInterviewDetail((prev: any) => prev ? { ...prev, [field]: value } : null);
-    } catch {}
-  }
-
-  async function addQuestionFromPanel(text: string) {
-    if (!selectedInterviewDetail) return;
-    try {
-      const token = await getToken();
-      if (!token) return;
-      await fetch(`${API_URL}/api/templates/${selectedInterviewDetail.id}/questions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, rubric: null, maxFollowups: 2 }),
-      });
-      loadInterviewDetail(selectedInterviewDetail.id);
-    } catch {}
-  }
-
-  async function generateLinkFromPanel() {
-    if (!selectedInterviewDetail) return;
-    try {
-      const token = await getToken();
-      if (!token) return;
-      await fetch(`${API_URL}/api/templates/${selectedInterviewDetail.id}/links`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ linkType: 'permanent' }),
-      });
-      loadInterviewDetail(selectedInterviewDetail.id);
-    } catch {}
-  }
-
-  async function updateWorkUnitField(field: string, value: any) {
-    if (!selectedWorkUnit) return;
-    try {
-      const token = await getToken();
-      if (!token) return;
-      await fetch(`${API_URL}/api/workunits/${selectedWorkUnit.id}`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [field]: value }),
-      });
-      setSelectedWorkUnit((prev: any) => prev ? { ...prev, [field]: value } : null);
-    } catch {}
-  }
-
-  async function reviewFromPanel(executionId: string, verdict: string) {
-    try {
-      const token = await getToken();
-      if (!token) return;
-      await fetch(`${API_URL}/api/executions/${executionId}/review`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ verdict }),
-      });
-      if (selectedWorkUnit) selectWorkUnit(selectedWorkUnit.id);
-    } catch {}
-  }
-
-  async function fundEscrowFromPanel() {
-    if (!selectedWorkUnit) return;
-    try {
-      const token = await getToken();
-      if (!token) return;
-      await fetch(`${API_URL}/api/workunits/${selectedWorkUnit.id}/fund-escrow`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: true }),
-      });
-      await selectWorkUnit(selectedWorkUnit.id);
-    } catch {}
-  }
-
-  async function publishFromPanel() {
-    if (!selectedWorkUnit) return;
-    try {
-      const token = await getToken();
-      if (!token) return;
-      // Fund escrow first
-      await fetch(`${API_URL}/api/workunits/${selectedWorkUnit.id}/fund-escrow`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: true }),
-      });
-      // Then activate
-      await fetch(`${API_URL}/api/workunits/${selectedWorkUnit.id}`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'active' }),
-      });
-      await selectWorkUnit(selectedWorkUnit.id);
-    } catch {}
-  }
-
-  async function assignFromPanel(execution: any) {
-    try {
-      const token = await getToken();
-      if (!token) return;
-      await fetch(`${API_URL}/api/executions/${execution.id}/approve-application`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (selectedWorkUnit) await selectWorkUnit(selectedWorkUnit.id);
-    } catch {}
-  }
-
-  async function cancelExecutionFromPanel(executionId: string) {
-    try {
-      const token = await getToken();
-      if (!token) return;
-      // Cancel by updating status
-      await fetch(`${API_URL}/api/executions/${executionId}/review`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ verdict: 'failed', feedback: 'Cancelled by company' }),
-      });
-      if (selectedWorkUnit) await selectWorkUnit(selectedWorkUnit.id);
-    } catch {}
-  }
-
-  async function sendMessage() {
+  async function send() {
     const text = input.trim();
     if (!text || streaming) return;
-
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setStreaming(true);
-
-    const assistantId = `a-${Date.now()}`;
-    setMessages(prev => [...prev, { id: assistantId, role: 'assistant', content: '' }]);
+    const aId = `a-${Date.now()}`;
+    setMessages(prev => [...prev, { id: aId, role: 'assistant', content: '' }]);
 
     try {
-      const token = await getToken();
-      if (!token) return;
-
+      const t = await getToken(); if (!t) return;
       const res = await fetch(`${API_URL}/api/agent/chat`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ conversationId, message: text }),
       });
-
       const reader = res.body?.getReader();
       if (!reader) return;
-
-      const decoder = new TextDecoder();
-      let buffer = '';
+      const dec = new TextDecoder();
+      let buf = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n'); buf = lines.pop() || '';
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
-          const jsonStr = line.slice(6);
           try {
-            const event = JSON.parse(jsonStr);
-
-            if (event.type === 'text') {
-              setMessages(prev =>
-                prev.map(m =>
-                  m.id === assistantId ? { ...m, content: (m.content || '') + event.content } : m
-                )
-              );
-            } else if (event.type === 'tool') {
-              if (event.status === 'done' && event.result) {
-                setMessages(prev => [
-                  ...prev,
-                  {
-                    id: `t-${Date.now()}-${Math.random()}`,
-                    role: 'tool',
-                    content: null,
-                    toolName: event.name,
-                    toolResult: event.result,
-                  },
-                ]);
-              }
-            } else if (event.type === 'done') {
-              if (event.conversationId) {
-                setConversationId(event.conversationId);
-              }
+            const ev = JSON.parse(line.slice(6));
+            if (ev.type === 'text') {
+              setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: (m.content || '') + ev.content } : m));
+            } else if (ev.type === 'tool' && ev.status === 'done' && ev.result) {
+              setMessages(prev => [...prev, { id: `t-${Date.now()}-${Math.random()}`, role: 'tool', content: null, toolName: ev.name, toolResult: ev.result }]);
+            } else if (ev.type === 'done') {
+              if (ev.conversationId) setConversationId(ev.conversationId);
               loadConversations();
-              if (showSidePanel) {
-                loadSidePanel();
-                // Also refresh selected work unit if one is open
-                if (selectedWorkUnit) selectWorkUnit(selectedWorkUnit.id);
-              }
+              loadPanel();
+              if (selectedWU) selectWU(selectedWU.id);
+            } else if (ev.type === 'error') {
+              setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: ev.message || 'Error occurred.' } : m));
             }
           } catch {}
         }
       }
-    } catch (err: any) {
-      setMessages(prev =>
-        prev.map(m =>
-          m.id === assistantId
-            ? { ...m, content: err?.message?.includes('Failed to fetch') ? 'Connection lost. Check if the server is running.' : 'Something went wrong. Try again.' }
-            : m
-        )
-      );
-    } finally {
-      setStreaming(false);
-    }
+    } catch {
+      setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: 'Connection lost.' } : m));
+    } finally { setStreaming(false); }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+  // ── Resize handler ──
+  function onMouseDown() {
+    resizing.current = true;
+    const onMove = (e: MouseEvent) => {
+      if (!resizing.current) return;
+      const w = window.innerWidth - e.clientX;
+      setPanelWidth(Math.max(320, Math.min(700, w)));
+    };
+    const onUp = () => { resizing.current = false; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   }
+
+  const getVal = (field: string, fallback: any) => pendingChanges[field] !== undefined ? pendingChanges[field] : fallback;
+  const hasChanges = Object.keys(pendingChanges).length > 0;
 
   return (
-    <div className="flex h-full">
-      {/* Main chat area */}
-      <div className="flex-1 flex flex-col h-[calc(100vh-48px)]">
-        {/* Chat header — conversation switcher */}
-        <div className="h-10 border-b border-slate-50 flex items-center justify-between px-5 flex-shrink-0">
-          <div className="relative">
-            <button
-              onClick={() => setShowConversations(!showConversations)}
-              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900"
-            >
-              {conversationId ? (conversations.find(c => c.id === conversationId)?.title || 'Conversation') : 'New conversation'}
-              <ChevronDown className="w-3 h-3" />
-            </button>
-
-            {showConversations && (
-              <div className="absolute top-7 left-0 w-72 bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1 max-h-80 overflow-y-auto">
-                <button
-                  onClick={startNewConversation}
-                  className="w-full text-left px-3 py-2 text-xs text-slate-500 hover:bg-slate-50 flex items-center gap-2"
-                >
-                  <Plus className="w-3 h-3" />
-                  New conversation
-                </button>
-                {conversations.map(c => (
-                  <div key={c.id} className="flex items-center group">
-                    <button
-                      onClick={() => loadConversation(c.id)}
-                      className={`flex-1 text-left px-3 py-2 hover:bg-slate-50 truncate ${
-                        c.id === conversationId ? 'text-slate-900' : 'text-slate-500'
-                      }`}
-                    >
-                      <span className="text-xs block truncate">{c.title || 'Untitled'}</span>
-                      <span className="text-[10px] text-slate-300">{timeAgo(c.updatedAt)}</span>
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deleteConversation(c.id); }}
-                      className="px-2 py-2 text-slate-300 hover:text-slate-500 opacity-0 group-hover:opacity-100"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={() => { setShowSidePanel(!showSidePanel); if (!showSidePanel) loadSidePanel(); }}
-            className="text-slate-400 hover:text-slate-600"
-          >
-            <PanelRight className="w-4 h-4" />
+    <div className="flex h-[calc(100vh-48px)]">
+      {/* ── Chat (left) ── */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Conv switcher */}
+        <div className="h-9 flex items-center justify-between px-4 border-b border-slate-50 flex-shrink-0 relative">
+          <button onClick={() => setShowConvList(!showConvList)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-700">
+            {conversationId ? (conversations.find(c => c.id === conversationId)?.title?.slice(0, 40) || 'Chat') : 'New chat'}
+            <ChevronDown className="w-3 h-3" />
           </button>
+          {showConvList && (
+            <div className="absolute top-8 left-2 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1 max-h-72 overflow-y-auto">
+              <button onClick={startNew} className="w-full text-left px-3 py-1.5 text-[11px] text-slate-400 hover:bg-slate-50 flex items-center gap-1.5">
+                <Plus className="w-3 h-3" /> New
+              </button>
+              {conversations.map(c => (
+                <div key={c.id} className="flex items-center group">
+                  <button onClick={() => loadConversation(c.id)} className={`flex-1 text-left px-3 py-1.5 text-[11px] truncate hover:bg-slate-50 ${c.id === conversationId ? 'text-slate-900' : 'text-slate-500'}`}>
+                    {c.title?.slice(0, 35) || 'Untitled'} <span className="text-slate-300 ml-1">{timeAgo(c.updatedAt)}</span>
+                  </button>
+                  <button onClick={e => { e.stopPropagation(); deleteConv(c.id); }} className="px-1.5 text-slate-200 hover:text-slate-500 opacity-0 group-hover:opacity-100">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {!panelOpen && (
+            <button onClick={() => { setPanelOpen(true); loadPanel(); }} className="text-[11px] text-slate-400 hover:text-slate-700">panel</button>
+          )}
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-5 py-6">
-          {messages.length === 0 && (
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          {messages.length === 0 ? (
             <div className="h-full flex items-center justify-center">
-              <div className="max-w-md space-y-6">
-                <p className="text-slate-400 text-sm text-center">
-                  What do you need done?
-                </p>
-                <div className="space-y-2">
-                  {[
-                    'Create a new task for UGC content creation',
-                    'Show me what tasks are active',
-                    'How much have I spent this month?',
-                    'Set up a screening interview for writers',
-                    'Review pending submissions',
-                  ].map((suggestion, i) => (
-                    <button
-                      key={i}
-                      onClick={() => { setInput(suggestion); }}
-                      className="block w-full text-left px-3 py-2 text-xs text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-lg transition-colors"
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
+              <div className="max-w-sm space-y-4">
+                <p className="text-slate-300 text-xs text-center">What do you need done?</p>
+                {['Create a task for content writing, $30, 24h deadline',
+                  'Show my active tasks',
+                  'How much have I spent this month?',
+                  'Set up a screening interview',
+                  'Review pending submissions',
+                ].map((s, i) => (
+                  <button key={i} onClick={() => setInput(s)} className="block w-full text-left px-2.5 py-1.5 text-[11px] text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded transition-colors">
+                    {s}
+                  </button>
+                ))}
               </div>
             </div>
-          )}
-
-          <div className="max-w-2xl mx-auto space-y-4">
-            {messages.map(msg => {
-              if (msg.role === 'user') {
-                return (
+          ) : (
+            <div className="max-w-xl space-y-3">
+              {messages.map(msg => {
+                if (msg.role === 'user') return (
                   <div key={msg.id} className="flex justify-end">
-                    <div className="bg-slate-100 rounded-2xl rounded-br-md px-4 py-2.5 max-w-md">
-                      <p className="text-sm text-slate-900 whitespace-pre-wrap">{msg.content}</p>
+                    <div className="bg-slate-100 rounded-xl rounded-br-sm px-3 py-2 max-w-sm">
+                      <p className="text-[13px] text-slate-900 whitespace-pre-wrap">{msg.content}</p>
                     </div>
                   </div>
                 );
-              }
-
-              if (msg.role === 'tool') {
+                if (msg.role === 'tool') return (
+                  <p key={msg.id} className="text-[11px] text-slate-400 whitespace-pre-wrap pl-0.5">{msg.toolResult}</p>
+                );
                 return (
-                  <div key={msg.id} className="pl-1">
-                    <p className="text-xs text-slate-400 whitespace-pre-wrap">
-                      {msg.toolResult}
+                  <div key={msg.id} className="pl-0.5">
+                    <p className="text-[13px] text-slate-700 whitespace-pre-wrap leading-relaxed">
+                      {msg.content}
+                      {streaming && messages[messages.length - 1]?.id === msg.id && <span className="inline-block w-1 h-3.5 bg-slate-300 ml-0.5 animate-pulse" />}
                     </p>
                   </div>
                 );
-              }
-
-              // assistant
-              return (
-                <div key={msg.id} className="pl-1">
-                  <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                    {msg.content}
-                    {streaming && messages[messages.length - 1]?.id === msg.id && (
-                      <span className="inline-block w-1.5 h-4 bg-slate-300 ml-0.5 animate-pulse" />
-                    )}
-                  </p>
-                </div>
-              );
-            })}
-            <div ref={messagesEndRef} />
-          </div>
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+          )}
         </div>
 
         {/* Input */}
-        <div className="border-t border-slate-100 px-5 py-3 flex-shrink-0">
-          <div className="max-w-2xl mx-auto flex items-end gap-3">
+        <div className="px-4 py-2.5 border-t border-slate-50 flex-shrink-0">
+          <div className="max-w-xl flex items-end gap-2">
             <textarea
               ref={inputRef}
               value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
               rows={1}
-              className="flex-1 resize-none text-sm text-slate-900 placeholder:text-slate-400 border-0 border-b border-slate-200 focus:border-slate-900 focus:ring-0 bg-transparent py-2 outline-none transition-colors"
+              className="flex-1 resize-none text-[13px] text-slate-900 placeholder:text-slate-300 border-0 border-b border-slate-200 focus:border-slate-400 focus:ring-0 bg-transparent py-1.5 outline-none"
               placeholder="What do you need done?"
               disabled={streaming}
             />
-            <button
-              onClick={sendMessage}
-              disabled={streaming || !input.trim()}
-              className="p-2 text-slate-400 hover:text-slate-900 disabled:text-slate-200 transition-colors"
-            >
-              <Send className="w-4 h-4" />
+            <button onClick={send} disabled={streaming || !input.trim()} className="p-1.5 text-slate-300 hover:text-slate-700 disabled:text-slate-200">
+              <Send className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
       </div>
 
-      {/* Side panel — work unit detail viewer */}
-      {showSidePanel && (
-        <div className="w-96 border-l border-slate-100 h-[calc(100vh-48px)] flex flex-col flex-shrink-0">
-          <div className="px-4 py-2.5 flex items-center justify-between border-b border-slate-50">
-            <span className="text-xs text-slate-400">
-              {selectedWorkUnit ? selectedWorkUnit.title : 'Status'}
-            </span>
-            <button onClick={() => setShowSidePanel(false)} className="text-slate-400 hover:text-slate-600">
-              <X className="w-3.5 h-3.5" />
-            </button>
+      {/* ── Resize handle ── */}
+      {panelOpen && (
+        <div onMouseDown={onMouseDown} className="w-1 cursor-col-resize bg-transparent hover:bg-slate-200 transition-colors flex-shrink-0" />
+      )}
+
+      {/* ── Panel (right) ── */}
+      {panelOpen && (
+        <div style={{ width: panelWidth }} className="border-l border-slate-100 flex flex-col flex-shrink-0 overflow-hidden">
+          <div className="h-9 flex items-center justify-between px-3 border-b border-slate-50 flex-shrink-0">
+            <span className="text-[11px] text-slate-400 truncate">{selectedWU ? selectedWU.title : 'Work units'}</span>
+            <button onClick={() => setPanelOpen(false)} className="text-slate-300 hover:text-slate-500"><X className="w-3 h-3" /></button>
           </div>
 
-          {/* Tab buttons */}
-          {selectedWorkUnit && (
-            <div className="px-4 pt-2 flex gap-4 border-b border-slate-50">
+          {/* Tabs */}
+          {selectedWU && (
+            <div className="px-3 pt-1.5 flex gap-3 border-b border-slate-50 flex-shrink-0">
               {['overview', 'execution', 'financial'].map(tab => (
-                <button
-                  key={tab}
-                  onClick={() => setSidePanelTab(tab as any)}
-                  className={`pb-2 text-xs capitalize ${sidePanelTab === tab ? 'text-slate-900 border-b border-slate-900' : 'text-slate-400'}`}
-                >
+                <button key={tab} onClick={() => setPanelTab(tab as any)}
+                  className={`pb-1.5 text-[11px] capitalize ${panelTab === tab ? 'text-slate-900 border-b border-slate-900' : 'text-slate-400'}`}>
                   {tab}
                 </button>
               ))}
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto px-4 py-3">
+          <div className="flex-1 overflow-y-auto px-3 py-2.5 text-[11px]">
             {!sideData ? (
-              <div className="py-8 text-center">
-                <div className="animate-spin rounded-full h-4 w-4 border border-slate-200 border-t-slate-400 mx-auto" />
-              </div>
-            ) : selectedWorkUnit ? (
+              <div className="py-8 text-center"><div className="animate-spin rounded-full h-3 w-3 border border-slate-200 border-t-slate-400 mx-auto" /></div>
+            ) : selectedWU ? (
               <>
-                {/* Tab 1: Overview */}
-                {sidePanelTab === 'overview' && (
-                  <div className="space-y-3 text-sm">
-                    <EditableField label="Title" value={selectedWorkUnit.title} onSave={v => updateWorkUnitField('title', v)} />
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 text-xs">Status</span>
-                      <select
-                        value={selectedWorkUnit.status}
-                        onChange={e => updateWorkUnitField('status', e.target.value)}
-                        className="text-xs text-slate-900 bg-transparent border-0 border-b border-slate-200 focus:border-slate-900 focus:ring-0 py-0.5 pr-6"
-                      >
-                        <option value="draft">draft</option>
-                        <option value="active">active</option>
-                        <option value="paused">paused</option>
-                        <option value="cancelled">cancelled</option>
-                      </select>
-                    </div>
-                    <EditableField label="Price ($)" value={`${(selectedWorkUnit.priceInCents / 100).toFixed(0)}`} onSave={v => updateWorkUnitField('priceInCents', parseInt(v) * 100)} />
-                    <EditableField label="Deadline (hours)" value={`${selectedWorkUnit.deadlineHours}`} onSave={v => updateWorkUnitField('deadlineHours', parseInt(v))} type="number" />
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 text-xs">Min tier</span>
-                      <select
-                        value={selectedWorkUnit.minTier}
-                        onChange={e => updateWorkUnitField('minTier', e.target.value)}
-                        className="text-xs text-slate-900 bg-transparent border-0 border-b border-slate-200 focus:border-slate-900 focus:ring-0 py-0.5 pr-6"
-                      >
-                        <option value="novice">novice</option>
-                        <option value="pro">pro</option>
-                        <option value="elite">elite</option>
-                      </select>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 text-xs">Assignment</span>
-                      <select
-                        value={selectedWorkUnit.assignmentMode || 'auto'}
-                        onChange={e => updateWorkUnitField('assignmentMode', e.target.value)}
-                        className="text-xs text-slate-900 bg-transparent border-0 border-b border-slate-200 focus:border-slate-900 focus:ring-0 py-0.5 pr-6"
-                      >
-                        <option value="auto">auto</option>
-                        <option value="manual">manual</option>
-                      </select>
-                    </div>
-                    <EditableField
-                      label="Complexity (1-5)"
-                      value={`${selectedWorkUnit.complexityScore || 1}`}
-                      onSave={v => updateWorkUnitField('complexityScore', parseInt(v))}
-                      type="number"
-                    />
-                    <EditableField
-                      label="Revision limit"
-                      value={`${selectedWorkUnit.revisionLimit || 2}`}
-                      onSave={v => updateWorkUnitField('revisionLimit', parseInt(v))}
-                      type="number"
-                    />
+                {/* Overview */}
+                {panelTab === 'overview' && (
+                  <div className="space-y-2.5">
+                    <Row label="Title" value={getVal('title', selectedWU.title)} onChange={v => stageChange('title', v)} />
+                    <SelectRow label="Status" value={getVal('status', selectedWU.status)} options={['draft', 'active', 'paused', 'cancelled']} onChange={v => stageChange('status', v)} />
+                    <Row label="Price ($)" value={`${((getVal('priceInCents', selectedWU.priceInCents)) / 100).toFixed(0)}`} onChange={v => stageChange('priceInCents', parseInt(v) * 100)} />
+                    <Row label="Deadline (h)" value={`${getVal('deadlineHours', selectedWU.deadlineHours)}`} onChange={v => stageChange('deadlineHours', parseInt(v))} />
+                    <SelectRow label="Tier" value={getVal('minTier', selectedWU.minTier)} options={['novice', 'pro', 'elite']} onChange={v => stageChange('minTier', v)} />
+                    <SelectRow label="Assignment" value={getVal('assignmentMode', selectedWU.assignmentMode || 'auto')} options={['auto', 'manual']} onChange={v => stageChange('assignmentMode', v)} />
+                    <Row label="Complexity" value={`${getVal('complexityScore', selectedWU.complexityScore)}`} onChange={v => stageChange('complexityScore', parseInt(v))} />
+                    <Row label="Revision limit" value={`${getVal('revisionLimit', selectedWU.revisionLimit)}`} onChange={v => stageChange('revisionLimit', parseInt(v))} />
                     <div>
-                      <span className="text-slate-400 text-xs block mb-1">Skills</span>
-                      <EditableTagList
-                        tags={selectedWorkUnit.requiredSkills || []}
-                        onSave={tags => updateWorkUnitField('requiredSkills', tags)}
-                      />
+                      <span className="text-slate-400">Skills</span>
+                      <input value={getVal('requiredSkills', selectedWU.requiredSkills)?.join?.(', ') || ''} onChange={e => stageChange('requiredSkills', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
+                        className="w-full text-[11px] text-slate-700 bg-transparent border-0 border-b border-slate-100 focus:border-slate-400 focus:ring-0 py-0.5 mt-0.5" />
                     </div>
                     <div>
-                      <span className="text-slate-400 text-xs block mb-1">Deliverable format</span>
-                      <EditableTagList
-                        tags={selectedWorkUnit.deliverableFormat || []}
-                        onSave={tags => updateWorkUnitField('deliverableFormat', tags)}
-                      />
+                      <span className="text-slate-400">Criteria</span>
+                      {(selectedWU.acceptanceCriteria || []).map((c: any, i: number) => (
+                        <p key={i} className="text-slate-600 py-0.5">{i + 1}. {c.criterion}</p>
+                      ))}
                     </div>
-                    {/* Acceptance criteria */}
-                    {selectedWorkUnit.acceptanceCriteria && (
-                      <div>
-                        <span className="text-slate-400 text-xs block mb-1">Acceptance criteria</span>
-                        {(Array.isArray(selectedWorkUnit.acceptanceCriteria) ? selectedWorkUnit.acceptanceCriteria : []).map((c: any, i: number) => (
-                          <p key={i} className="text-xs text-slate-600 py-0.5">{i + 1}. {c.criterion}{c.required ? '' : ' (optional)'}</p>
-                        ))}
-                      </div>
-                    )}
-
                     <div>
-                      <span className="text-slate-400 text-xs block mb-1">Spec</span>
-                      <EditableTextArea
-                        value={selectedWorkUnit.spec || ''}
-                        onSave={v => updateWorkUnitField('spec', v)}
-                      />
+                      <span className="text-slate-400">Spec</span>
+                      <textarea value={getVal('spec', selectedWU.spec)} onChange={e => stageChange('spec', e.target.value)}
+                        className="w-full text-[11px] text-slate-600 bg-transparent border border-slate-100 rounded p-1.5 focus:ring-0 focus:border-slate-300 resize-none mt-0.5" rows={4} />
                     </div>
                   </div>
                 )}
 
-                {/* Tab 2: Execution */}
-                {sidePanelTab === 'execution' && (
-                  <div className="space-y-4 text-xs">
-                    {/* Interview config — inline in work unit panel */}
+                {/* Execution */}
+                {panelTab === 'execution' && (
+                  <div className="space-y-3">
                     <div>
-                      <span className="text-slate-400 block mb-2">Screening interview</span>
-                      <select
-                        value={selectedWorkUnit.infoCollectionTemplateId || ''}
-                        onChange={e => {
-                          const val = e.target.value || null;
-                          updateWorkUnitField('infoCollectionTemplateId', val);
-                          if (val) loadInterviewDetail(val);
-                          else setSelectedInterviewDetail(null);
-                        }}
-                        className="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-200 focus:border-slate-900 focus:ring-0 py-1 mb-2"
-                      >
-                        <option value="">None — direct accept</option>
-                        {(sideData.templates || []).map((t: any) => (
-                          <option key={t.id} value={t.id}>{t.name}</option>
-                        ))}
+                      <span className="text-slate-400 block mb-1">Interview</span>
+                      <select value={selectedWU.infoCollectionTemplateId || ''} onChange={e => {
+                        const v = e.target.value || null;
+                        stageChange('infoCollectionTemplateId', v);
+                        if (v) loadInterview(v); else setInterviewDetail(null);
+                      }} className="w-full text-[11px] text-slate-700 bg-transparent border-0 border-b border-slate-100 focus:border-slate-400 focus:ring-0 py-0.5">
+                        <option value="">None</option>
+                        {(sideData.templates || []).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
                       </select>
-
-                      {/* If a template is attached, show its config inline */}
-                      {selectedWorkUnit.infoCollectionTemplateId && selectedInterviewDetail && (
-                        <div className="space-y-3 pt-2 border-t border-slate-50">
-                          <EditableField label="Name" value={selectedInterviewDetail.name} onSave={v => updateInterviewField('name', v)} />
-                          <EditableField label="Time limit (min)" value={`${selectedInterviewDetail.timeLimitMinutes}`} onSave={v => updateInterviewField('timeLimitMinutes', parseInt(v))} />
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-400">Mode</span>
-                            <select
-                              value={selectedInterviewDetail.mode}
-                              onChange={e => updateInterviewField('mode', e.target.value)}
-                              className="text-xs text-slate-700 bg-transparent border-0 border-b border-slate-200 focus:border-slate-900 focus:ring-0 py-0.5"
-                            >
-                              <option value="application">application</option>
-                              <option value="inquiry">inquiry</option>
-                            </select>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-400">Voice output</span>
-                            <button
-                              onClick={() => updateInterviewField('enableVoiceOutput', !selectedInterviewDetail.enableVoiceOutput)}
-                              className={`text-xs ${selectedInterviewDetail.enableVoiceOutput ? 'text-slate-900' : 'text-slate-400'}`}
-                            >
-                              {selectedInterviewDetail.enableVoiceOutput ? 'on' : 'off'}
-                            </button>
-                          </div>
-
-                          {/* Questions */}
-                          <div>
-                            <span className="text-slate-400 block mb-1">Questions ({selectedInterviewDetail.questions?.length || 0})</span>
-                            {(selectedInterviewDetail.questions || []).map((q: any, i: number) => (
-                              <div key={q.id} className="py-1 border-b border-slate-50 last:border-0">
-                                <p className="text-slate-600">{i + 1}. {q.questionText}</p>
-                                {q.rubric && <p className="text-slate-400 text-[10px]">rubric: {q.rubric.slice(0, 60)}</p>}
-                              </div>
-                            ))}
-                            <button
-                              onClick={() => {
-                                const text = prompt('Question text:');
-                                if (text) addQuestionFromPanel(text);
-                              }}
-                              className="text-slate-400 hover:text-slate-700 mt-1"
-                            >
-                              + add question
-                            </button>
-                          </div>
-
-                          {/* Links */}
-                          <div>
-                            <span className="text-slate-400 block mb-1">Links</span>
-                            {(selectedInterviewDetail.links || []).filter((l: any) => l.isActive).map((l: any) => (
-                              <p key={l.id} className="text-slate-600 truncate">{process.env.NEXT_PUBLIC_FRONTEND_URL || 'http://localhost:3000'}/interview/{l.token}</p>
-                            ))}
-                            <button onClick={generateLinkFromPanel} className="text-slate-400 hover:text-slate-700 mt-1">
-                              + generate link
-                            </button>
-                          </div>
-
-                          {/* Knowledge files */}
-                          <div>
-                            <span className="text-slate-400 block mb-1">Knowledge files ({selectedInterviewDetail.knowledgeFiles?.length || 0})</span>
-                            {(selectedInterviewDetail.knowledgeFiles || []).map((f: any) => (
-                              <p key={f.id} className="text-slate-600">{f.filename} — {f.status}</p>
-                            ))}
-                          </div>
-
-                          <div>
-                            <EditableTextArea
-                              value={selectedInterviewDetail.personaPrompt || ''}
-                              onSave={v => updateInterviewField('personaPrompt', v)}
-                            />
-                            <span className="text-slate-300 text-[10px]">persona prompt</span>
-                          </div>
-                        </div>
-                      )}
                     </div>
 
-                    {/* Milestones */}
-                    {selectedWorkUnit.milestoneTemplates?.length > 0 && (
-                      <div>
-                        <span className="text-slate-400 block mb-1">Milestones</span>
-                        {selectedWorkUnit.milestoneTemplates.map((m: any, i: number) => (
-                          <p key={m.id} className="text-slate-600 py-0.5">{i + 1}. {m.description}</p>
+                    {interviewDetail && (
+                      <div className="space-y-2 pt-1 border-t border-slate-50">
+                        <p className="text-slate-700">{interviewDetail.name} · {interviewDetail.timeLimitMinutes}min · {interviewDetail.mode}</p>
+                        <p className="text-slate-400">{interviewDetail.questions?.length || 0} questions · voice {interviewDetail.enableVoiceOutput ? 'on' : 'off'}</p>
+                        {(interviewDetail.links || []).filter((l: any) => l.isActive).slice(0, 3).map((l: any) => (
+                          <p key={l.id} className="text-slate-500 truncate">/interview/{l.token}</p>
                         ))}
+                        <button onClick={generateLink} className="text-slate-400 hover:text-slate-700">+ link</button>
                       </div>
                     )}
 
-                    {/* Executions */}
                     <div>
-                      <span className="text-slate-400 block mb-1">Executions</span>
-                      {selectedWorkUnit.executions?.length > 0 ? (
-                        selectedWorkUnit.executions.map((e: any) => (
-                          <div key={e.id} className="py-2 border-b border-slate-50 last:border-0">
-                            <p className="text-slate-700">{e.student?.name || 'Unknown'} — {e.status}</p>
-                            {e.deadlineAt && <p className="text-slate-400">deadline: {new Date(e.deadlineAt).toLocaleDateString()}</p>}
-                            {e.clockedInAt && <p className="text-slate-400">clocked in: {new Date(e.clockedInAt).toLocaleString()}</p>}
-                            {e.milestones?.length > 0 && (
-                              <p className="text-slate-400">{e.milestones.filter((m: any) => m.completedAt).length}/{e.milestones.length} milestones</p>
+                      <span className="text-slate-400 block mb-1">Applicants & Executions</span>
+                      {selectedWU.executions?.length > 0 ? selectedWU.executions.map((e: any) => (
+                        <div key={e.id} className="py-1.5 border-b border-slate-50 last:border-0">
+                          <p className="text-slate-700">{e.student?.name || '?'} — {e.status}</p>
+                          {e.deadlineAt && <p className="text-slate-400">deadline {new Date(e.deadlineAt).toLocaleDateString()}</p>}
+                          {e.qualityScore != null && <p className="text-slate-400">quality {e.qualityScore}%</p>}
+                          <div className="flex gap-2 mt-0.5">
+                            {e.status === 'pending_review' && <>
+                              <button onClick={() => approveApp(e.id)} className="text-slate-500 hover:text-slate-900">assign</button>
+                              <button onClick={() => reviewExec(e.id, 'failed')} className="text-slate-400 hover:text-slate-600">reject</button>
+                            </>}
+                            {e.status === 'submitted' && <>
+                              <button onClick={() => reviewExec(e.id, 'approved')} className="text-slate-500 hover:text-slate-900">approve</button>
+                              <button onClick={() => reviewExec(e.id, 'revision_needed')} className="text-slate-500 hover:text-slate-900">revise</button>
+                              <button onClick={() => reviewExec(e.id, 'failed')} className="text-slate-400 hover:text-slate-600">reject</button>
+                            </>}
+                            {['assigned', 'clocked_in'].includes(e.status) && (
+                              <button onClick={() => reviewExec(e.id, 'failed')} className="text-slate-400 hover:text-slate-600">cancel</button>
                             )}
-
-                            {/* Screening pending — show link */}
-                            {e.status === 'pending_screening' && (
-                              <p className="text-slate-400 mt-1">awaiting screening interview</p>
-                            )}
-
-                            {/* Manual mode: pending review — assign or reject */}
-                            {e.status === 'pending_review' && (
-                              <div className="flex gap-3 mt-1.5">
-                                <button onClick={() => assignFromPanel(e)} className="text-slate-500 hover:text-slate-900">assign</button>
-                                <button onClick={() => cancelExecutionFromPanel(e.id)} className="text-slate-400 hover:text-slate-600">reject</button>
-                              </div>
-                            )}
-
-                            {/* Submitted — review */}
-                            {e.status === 'submitted' && (
-                              <div className="flex gap-3 mt-1.5">
-                                <button onClick={() => reviewFromPanel(e.id, 'approved')} className="text-slate-500 hover:text-slate-900">approve</button>
-                                <button onClick={() => reviewFromPanel(e.id, 'revision_needed')} className="text-slate-500 hover:text-slate-900">revise</button>
-                                <button onClick={() => reviewFromPanel(e.id, 'failed')} className="text-slate-500 hover:text-slate-900">reject</button>
-                              </div>
-                            )}
-
-                            {/* Active — cancel */}
-                            {['assigned', 'clocked_in', 'revision_needed'].includes(e.status) && (
-                              <button onClick={() => cancelExecutionFromPanel(e.id)} className="text-slate-400 hover:text-slate-600 mt-1">cancel</button>
-                            )}
-
-                            {e.qualityScore != null && <p className="text-slate-400">quality: {e.qualityScore}%</p>}
                           </div>
-                        ))
-                      ) : (
-                        <p className="text-slate-400">No executions yet</p>
-                      )}
+                        </div>
+                      )) : <p className="text-slate-400">None yet</p>}
                     </div>
                   </div>
                 )}
 
-                {/* Tab 3: Financial */}
-                {sidePanelTab === 'financial' && (
-                  <div className="space-y-4 text-xs">
-                    {/* Task financials */}
-                    <div>
-                      <span className="text-slate-400 block mb-1">Task price</span>
-                      <p className="text-slate-700">${(selectedWorkUnit.priceInCents / 100).toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block mb-1">Escrow</span>
-                      {selectedWorkUnit.escrow ? (
-                        <div>
-                          <p className="text-slate-700">${(selectedWorkUnit.escrow.amountInCents / 100).toFixed(2)} — {selectedWorkUnit.escrow.status}</p>
-                          {selectedWorkUnit.escrow.status === 'pending' && (
-                            <div className="flex gap-3 mt-1.5">
-                              <button onClick={fundEscrowFromPanel} className="text-slate-500 hover:text-slate-900">fund escrow</button>
-                              <button onClick={publishFromPanel} className="text-slate-500 hover:text-slate-900">fund + publish</button>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-slate-400">No escrow account</p>
+                {/* Financial */}
+                {panelTab === 'financial' && (
+                  <div className="space-y-3">
+                    <div className="flex justify-between"><span className="text-slate-400">Price</span><span className="text-slate-700">${(selectedWU.priceInCents / 100).toFixed(2)}</span></div>
+                    {selectedWU.escrow && <>
+                      <div className="flex justify-between"><span className="text-slate-400">Escrow</span><span className="text-slate-700">{selectedWU.escrow.status}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Fee</span><span className="text-slate-700">${(selectedWU.escrow.platformFeeInCents / 100).toFixed(2)}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Contractor gets</span><span className="text-slate-700">${(selectedWU.escrow.netAmountInCents / 100).toFixed(2)}</span></div>
+                      {selectedWU.escrow.status === 'pending' && (
+                        <button onClick={fundAndPublish} className="text-slate-500 hover:text-slate-900">fund + publish</button>
                       )}
-                    </div>
-                    {/* Platform fee */}
-                    {selectedWorkUnit.escrow && (
-                      <div>
-                        <span className="text-slate-400 block mb-1">Platform fee</span>
-                        <p className="text-slate-700">${(selectedWorkUnit.escrow.platformFeeInCents / 100).toFixed(2)} ({(selectedWorkUnit.platformFeePercent * 100).toFixed(0)}%)</p>
-                        <p className="text-slate-400">Contractor receives: ${(selectedWorkUnit.escrow.netAmountInCents / 100).toFixed(2)}</p>
-                      </div>
-                    )}
-                    {/* Company totals */}
+                    </>}
                     {sideData.billing && (
-                      <div className="pt-2 border-t border-slate-50">
-                        <span className="text-slate-400 block mb-1">Company totals</span>
-                        <div className="space-y-0.5">
-                          <div className="flex justify-between"><span className="text-slate-500">Active escrow</span><span className="text-slate-700">${((sideData.billing.activeEscrowInCents || 0) / 100).toFixed(0)}</span></div>
-                          <div className="flex justify-between"><span className="text-slate-500">This month</span><span className="text-slate-700">${((sideData.billing.monthlySpendInCents || 0) / 100).toFixed(0)}</span></div>
-                        </div>
+                      <div className="pt-2 border-t border-slate-50 space-y-1">
+                        <div className="flex justify-between"><span className="text-slate-400">Total escrow</span><span className="text-slate-700">${((sideData.billing.activeEscrowInCents || 0) / 100).toFixed(0)}</span></div>
+                        <div className="flex justify-between"><span className="text-slate-400">This month</span><span className="text-slate-700">${((sideData.billing.monthlySpendInCents || 0) / 100).toFixed(0)}</span></div>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Confirm button */}
+                {hasChanges && (
+                  <div className="pt-3 mt-3 border-t border-slate-50">
+                    <button onClick={confirmChanges} disabled={saving}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] text-slate-700 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-50">
+                      <Check className="w-3 h-3" />
+                      {saving ? 'Saving...' : `Confirm ${Object.keys(pendingChanges).length} change${Object.keys(pendingChanges).length > 1 ? 's' : ''}`}
+                    </button>
                   </div>
                 )}
               </>
             ) : (
-              /* No work unit selected — show list */
-              <div className="space-y-4">
+              /* Work unit list */
+              <div className="space-y-3">
                 {sideData.billing && (
-                  <div className="text-xs space-y-1">
-                    <span className="text-slate-400">Billing</span>
-                    <div className="flex justify-between"><span className="text-slate-500">Escrow</span><span className="text-slate-900">${((sideData.billing.activeEscrowInCents || 0) / 100).toFixed(0)}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">This month</span><span className="text-slate-900">${((sideData.billing.monthlySpendInCents || 0) / 100).toFixed(0)}</span></div>
+                  <div className="space-y-0.5">
+                    <div className="flex justify-between"><span className="text-slate-400">Escrow</span><span className="text-slate-700">${((sideData.billing.activeEscrowInCents || 0) / 100).toFixed(0)}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">Month</span><span className="text-slate-700">${((sideData.billing.monthlySpendInCents || 0) / 100).toFixed(0)}</span></div>
                   </div>
                 )}
                 <div>
-                  <span className="text-xs text-slate-400">Work units</span>
+                  <span className="text-slate-400 block mb-1">Work units</span>
                   {(sideData.workUnits || []).map((wu: any) => (
-                    <button
-                      key={wu.id}
-                      onClick={() => selectWorkUnit(wu.id)}
-                      className="w-full text-left py-1.5 border-b border-slate-50 last:border-0 hover:bg-slate-50"
-                    >
-                      <p className="text-xs text-slate-700 truncate">{wu.title}</p>
-                      <p className="text-[11px] text-slate-400">{wu.status} · ${(wu.priceInCents / 100).toFixed(0)}</p>
+                    <button key={wu.id} onClick={() => selectWU(wu.id)} className="w-full text-left py-1 hover:bg-slate-50 rounded">
+                      <p className="text-slate-700 truncate">{wu.title}</p>
+                      <p className="text-slate-400">{wu.status} · ${(wu.priceInCents / 100).toFixed(0)}</p>
                     </button>
                   ))}
                 </div>
@@ -886,12 +540,9 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Back to list if viewing a work unit */}
-          {selectedWorkUnit && (
-            <div className="px-4 py-2 border-t border-slate-50">
-              <button onClick={() => setSelectedWorkUnit(null)} className="text-xs text-slate-400 hover:text-slate-600">
-                ← all work units
-              </button>
+          {selectedWU && (
+            <div className="px-3 py-1.5 border-t border-slate-50 flex-shrink-0">
+              <button onClick={() => { setSelectedWU(null); setInterviewDetail(null); setPendingChanges({}); }} className="text-[11px] text-slate-400 hover:text-slate-600">← all</button>
             </div>
           )}
         </div>
@@ -900,91 +551,26 @@ export default function DashboardPage() {
   );
 }
 
-// Inline editable field
-function EditableField({ label, value, onSave, type = 'text' }: { label: string; value: string; onSave: (v: string) => void; type?: string }) {
-  const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState(value);
-  const ref = useRef<HTMLInputElement>(null);
+// ── Inline components ──
 
-  useEffect(() => { setVal(value); }, [value]);
-  useEffect(() => { if (editing) ref.current?.focus(); }, [editing]);
-
-  function save() { setEditing(false); if (val !== value) onSave(val); }
-
+function Row({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
-    <div className="flex justify-between items-center">
-      <span className="text-slate-400 text-xs">{label}</span>
-      {editing ? (
-        <input ref={ref} type={type} value={val} onChange={e => setVal(e.target.value)} onBlur={save} onKeyDown={e => e.key === 'Enter' && save()}
-          className="text-xs text-slate-900 bg-transparent border-0 border-b border-slate-900 focus:ring-0 py-0.5 text-right w-32" />
-      ) : (
-        <button onClick={() => setEditing(true)} className="text-xs text-slate-700 hover:text-slate-900">
-          {value || '—'}
-        </button>
-      )}
+    <div className="flex justify-between items-center gap-2">
+      <span className="text-slate-400 flex-shrink-0">{label}</span>
+      <input value={value} onChange={e => onChange(e.target.value)}
+        className="text-right text-[11px] text-slate-700 bg-transparent border-0 border-b border-slate-100 focus:border-slate-400 focus:ring-0 py-0 w-28 min-w-0" />
     </div>
   );
 }
 
-// Editable tag list
-function EditableTagList({ tags, onSave }: { tags: string[]; onSave: (tags: string[]) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState(tags.join(', '));
-
-  useEffect(() => { setVal(tags.join(', ')); }, [tags]);
-
-  function save() {
-    setEditing(false);
-    const newTags = val.split(',').map(t => t.trim()).filter(Boolean);
-    if (JSON.stringify(newTags) !== JSON.stringify(tags)) onSave(newTags);
-  }
-
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        value={val}
-        onChange={e => setVal(e.target.value)}
-        onBlur={save}
-        onKeyDown={e => e.key === 'Enter' && save()}
-        className="w-full text-xs text-slate-900 bg-transparent border-0 border-b border-slate-900 focus:ring-0 py-0.5"
-        placeholder="comma separated"
-      />
-    );
-  }
-
+function SelectRow({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
   return (
-    <button onClick={() => setEditing(true)} className="text-xs text-slate-600 hover:text-slate-900 text-left">
-      {tags.length > 0 ? tags.join(', ') : '—'}
-    </button>
-  );
-}
-
-// Editable textarea
-function EditableTextArea({ value, onSave }: { value: string; onSave: (v: string) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState(value);
-
-  useEffect(() => { setVal(value); }, [value]);
-
-  function save() { setEditing(false); if (val !== value) onSave(val); }
-
-  if (editing) {
-    return (
-      <textarea
-        autoFocus
-        value={val}
-        onChange={e => setVal(e.target.value)}
-        onBlur={save}
-        className="w-full text-xs text-slate-700 bg-transparent border border-slate-200 rounded p-2 focus:ring-0 focus:border-slate-400 resize-none"
-        rows={6}
-      />
-    );
-  }
-
-  return (
-    <button onClick={() => setEditing(true)} className="text-xs text-slate-600 hover:text-slate-900 text-left whitespace-pre-wrap w-full">
-      {value?.slice(0, 300) || '—'}{value?.length > 300 ? '...' : ''}
-    </button>
+    <div className="flex justify-between items-center gap-2">
+      <span className="text-slate-400">{label}</span>
+      <select value={value} onChange={e => onChange(e.target.value)}
+        className="text-[11px] text-slate-700 bg-transparent border-0 border-b border-slate-100 focus:border-slate-400 focus:ring-0 py-0 pr-5">
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
   );
 }
