@@ -47,6 +47,8 @@ export default function DashboardPage() {
   const [pendingChanges, setPendingChanges] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [onboardWelcome, setOnboardWelcome] = useState('');
+  const [onboardInstructions, setOnboardInstructions] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -109,6 +111,7 @@ export default function DashboardPage() {
         setPendingChanges({});
         if (d.infoCollectionTemplateId) loadInterview(d.infoCollectionTemplateId);
         else setInterviewDetail(null);
+        loadOnboarding(d.id);
       }
     } catch {}
   }
@@ -197,6 +200,45 @@ export default function DashboardPage() {
     } catch {}
   }
 
+  async function saveOnboarding() {
+    if (!selectedWU) return;
+    try {
+      const t = await getToken(); if (!t) return;
+      // Save onboarding data as part of the work unit's address/metadata
+      // Using the company profile's address field to store onboarding config
+      const res = await fetch(`${API_URL}/api/companies/me`, { headers: { Authorization: `Bearer ${t}` } });
+      if (res.ok) {
+        const profile = await res.json();
+        const existing = (typeof profile.address === 'object' && profile.address) || {};
+        const onboardingPages = existing.onboardingPages || {};
+        onboardingPages[selectedWU.id] = { welcome: onboardWelcome, instructions: onboardInstructions };
+        await fetch(`${API_URL}/api/companies/me`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: { ...existing, onboardingPages } }),
+        });
+      }
+    } catch {}
+  }
+
+  // Load onboarding when selecting a work unit
+  async function loadOnboarding(wuId: string) {
+    try {
+      const t = await getToken(); if (!t) return;
+      const res = await fetch(`${API_URL}/api/companies/me`, { headers: { Authorization: `Bearer ${t}` } });
+      if (res.ok) {
+        const profile = await res.json();
+        const pages = (profile.address as any)?.onboardingPages || {};
+        const page = pages[wuId] || {};
+        setOnboardWelcome(page.welcome || '');
+        setOnboardInstructions(page.instructions || '');
+      }
+    } catch {
+      setOnboardWelcome('');
+      setOnboardInstructions('');
+    }
+  }
+
   // ── Chat ──
 
   function startNew() { setConversationId(null); setMessages([]); setShowConvList(false); inputRef.current?.focus(); }
@@ -214,19 +256,24 @@ export default function DashboardPage() {
     const text = input.trim();
     if (!text || streaming) return;
 
-    // Read attached files as text and append to message
+    // Read attached files and append to message
     let fullMessage = text;
     if (attachedFiles.length > 0) {
       for (const file of attachedFiles) {
         try {
-          if (file.type.startsWith('image/')) {
-            fullMessage += `\n\n[Attached image: ${file.name}]`;
-          } else {
+          // Only read plain text files — skip binary (images, PDFs)
+          const isText = file.type.startsWith('text/') ||
+            file.name.endsWith('.txt') || file.name.endsWith('.csv') ||
+            file.name.endsWith('.md') || file.name.endsWith('.json');
+
+          if (isText) {
             const content = await file.text();
-            fullMessage += `\n\n--- ${file.name} ---\n${content.slice(0, 10000)}${content.length > 10000 ? '\n...(truncated)' : ''}`;
+            fullMessage += `\n\n--- ${file.name} ---\n${content.slice(0, 8000)}${content.length > 8000 ? '\n...(truncated)' : ''}`;
+          } else {
+            fullMessage += `\n\n[Attached file: ${file.name}, ${(file.size / 1024).toFixed(0)}KB, type: ${file.type || 'unknown'}]`;
           }
         } catch {
-          fullMessage += `\n\n[Attached: ${file.name} — could not read]`;
+          fullMessage += `\n\n[Attached: ${file.name}]`;
         }
       }
     }
@@ -333,10 +380,10 @@ export default function DashboardPage() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="flex-1 overflow-y-auto px-6 py-4">
           {messages.length === 0 ? (
             <div className="h-full flex items-center justify-center">
-              <div className="max-w-sm space-y-4">
+              <div className="max-w-md space-y-4">
                 <p className="text-slate-300 text-xs text-center">What do you need done?</p>
                 {['Create a task for content writing, $30, 24h deadline',
                   'Show my active tasks',
@@ -344,28 +391,28 @@ export default function DashboardPage() {
                   'Set up a screening interview',
                   'Review pending submissions',
                 ].map((s, i) => (
-                  <button key={i} onClick={() => setInput(s)} className="block w-full text-left px-2.5 py-1.5 text-[11px] text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded transition-colors">
+                  <button key={i} onClick={() => setInput(s)} className="block w-full text-left px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded transition-colors">
                     {s}
                   </button>
                 ))}
               </div>
             </div>
           ) : (
-            <div className="max-w-xl space-y-3">
+            <div className="space-y-3">
               {messages.map(msg => {
                 if (msg.role === 'user') return (
                   <div key={msg.id} className="flex justify-end">
-                    <div className="bg-slate-100 rounded-xl rounded-br-sm px-3 py-2 max-w-sm">
-                      <p className="text-[13px] text-slate-900 whitespace-pre-wrap">{msg.content}</p>
+                    <div className="bg-slate-100 rounded-xl rounded-br-sm px-3 py-2 max-w-[70%]">
+                      <p className="text-sm text-slate-900 whitespace-pre-wrap">{msg.content}</p>
                     </div>
                   </div>
                 );
                 if (msg.role === 'tool') return (
-                  <p key={msg.id} className="text-[11px] text-slate-400 whitespace-pre-wrap pl-0.5">{msg.toolResult}</p>
+                  <p key={msg.id} className="text-xs text-slate-400 whitespace-pre-wrap pl-0.5">{msg.toolResult}</p>
                 );
                 return (
                   <div key={msg.id} className="pl-0.5">
-                    <p className="text-[13px] text-slate-700 whitespace-pre-wrap leading-relaxed">
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
                       {msg.content}
                       {streaming && messages[messages.length - 1]?.id === msg.id && <span className="inline-block w-1 h-3.5 bg-slate-300 ml-0.5 animate-pulse" />}
                     </p>
@@ -378,10 +425,10 @@ export default function DashboardPage() {
         </div>
 
         {/* Input */}
-        <div className="px-4 py-3 border-t border-slate-100 flex-shrink-0">
+        <div className="px-6 py-3 border-t border-slate-100 flex-shrink-0">
           {/* Attached files preview */}
           {attachedFiles.length > 0 && (
-            <div className="max-w-xl flex flex-wrap gap-1.5 mb-2">
+            <div className="flex flex-wrap gap-1.5 mb-2">
               {attachedFiles.map((f, i) => (
                 <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-50 rounded text-[10px] text-slate-500">
                   <FileText className="w-2.5 h-2.5" />
@@ -393,7 +440,7 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
-          <div className="max-w-xl flex items-end gap-1.5">
+          <div className="flex items-end gap-1.5">
             <button
               onClick={() => document.getElementById('chat-file-input')?.click()}
               className="p-1.5 text-slate-300 hover:text-slate-500 flex-shrink-0"
@@ -419,7 +466,7 @@ export default function DashboardPage() {
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
               rows={1}
-              className="flex-1 resize-none text-[13px] text-slate-900 placeholder:text-slate-300 border-0 border-b border-slate-200 focus:border-slate-400 focus:ring-0 bg-transparent py-1.5 outline-none"
+              className="flex-1 resize-none text-sm text-slate-900 placeholder:text-slate-300 border-0 border-b border-slate-200 focus:border-slate-400 focus:ring-0 bg-transparent py-1.5 outline-none"
               placeholder="What do you need done?"
               disabled={streaming}
             />
@@ -455,7 +502,7 @@ export default function DashboardPage() {
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto px-3 py-2.5 text-[11px]">
+          <div className="flex-1 overflow-y-auto px-3 py-2.5 text-xs">
             {!sideData ? (
               <div className="py-8 text-center"><div className="animate-spin rounded-full h-3 w-3 border border-slate-200 border-t-slate-400 mx-auto" /></div>
             ) : selectedWU ? (
@@ -539,6 +586,43 @@ export default function DashboardPage() {
                           </div>
                         </div>
                       )) : <p className="text-slate-400">None yet</p>}
+                    </div>
+
+                    {/* Onboarding Page */}
+                    <div className="pt-2 border-t border-slate-50">
+                      <span className="text-slate-400 block mb-1">Contractor Onboarding</span>
+                      <div className="space-y-2">
+                        <div>
+                          <span className="text-slate-400 text-[10px]">Welcome message</span>
+                          <textarea
+                            value={onboardWelcome}
+                            onChange={e => setOnboardWelcome(e.target.value)}
+                            className="w-full text-xs text-slate-600 bg-transparent border border-slate-100 rounded p-1.5 focus:ring-0 focus:border-slate-300 resize-none mt-0.5"
+                            rows={2}
+                            placeholder="Welcome to this task! Here's what you need to know..."
+                          />
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[10px]">Instructions for contractor</span>
+                          <textarea
+                            value={onboardInstructions}
+                            onChange={e => setOnboardInstructions(e.target.value)}
+                            className="w-full text-xs text-slate-600 bg-transparent border border-slate-100 rounded p-1.5 focus:ring-0 focus:border-slate-300 resize-none mt-0.5"
+                            rows={3}
+                            placeholder="1. Read the spec carefully&#10;2. Check deliverable format&#10;3. Submit before deadline"
+                          />
+                        </div>
+                        <button onClick={saveOnboarding} className="text-slate-500 hover:text-slate-900 text-xs">
+                          save onboarding
+                        </button>
+                        <a
+                          href={`/dashboard/settings/onboarding-editor?workUnitId=${selectedWU?.id}`}
+                          target="_blank"
+                          className="block text-slate-400 hover:text-slate-700 text-xs"
+                        >
+                          open full editor →
+                        </a>
+                      </div>
                     </div>
                   </div>
                 )}
