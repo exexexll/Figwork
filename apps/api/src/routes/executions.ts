@@ -885,6 +885,49 @@ export async function executionRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // POST /:id/approve-application — Company approves a pending_review application (manual mode)
+  fastify.post<{ Params: { id: string } }>(
+    '/:id/approve-application',
+    async (request, reply) => {
+      const company = (request as any).company;
+      if (!company) return forbidden(reply, 'Only companies can approve applications');
+
+      const { id } = request.params;
+      const execution = await db.execution.findFirst({
+        where: { id, workUnit: { companyId: company.id }, status: 'pending_review' },
+        include: { workUnit: true, student: true },
+      });
+
+      if (!execution) return notFound(reply, 'Pending application not found');
+
+      await db.execution.update({
+        where: { id },
+        data: { status: 'assigned' },
+      });
+
+      // Move work unit to in_progress
+      await db.workUnit.update({
+        where: { id: execution.workUnitId },
+        data: { status: 'in_progress' },
+      });
+
+      // Notify student
+      await db.notification.create({
+        data: {
+          userId: execution.student.clerkId,
+          userType: 'student',
+          type: 'application_approved',
+          title: 'Application Approved',
+          body: `You've been assigned to "${execution.workUnit.title}"`,
+          data: { executionId: id },
+          channels: ['in_app', 'email'],
+        },
+      });
+
+      return reply.send({ success: true, status: 'assigned' });
+    }
+  );
+
   // POST /:id/review
   fastify.post<{ Params: { id: string }; Body: ReviewSubmissionBody }>(
     '/:id/review',

@@ -114,14 +114,16 @@ export default function DashboardPage() {
       const token = await getToken();
       if (!token) return;
 
-      const [wuRes, billingRes] = await Promise.all([
+      const [wuRes, billingRes, templatesRes] = await Promise.all([
         fetch(`${API_URL}/api/workunits`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.ok ? r.json() : []),
         fetch(`${API_URL}/api/payments/company/balance`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.ok ? r.json() : null),
+        fetch(`${API_URL}/api/templates`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.ok ? r.json() : { data: [] }).catch(() => ({ data: [] })),
       ]);
 
       setSideData({
         workUnits: Array.isArray(wuRes) ? wuRes : [],
         billing: billingRes,
+        templates: (templatesRes?.data || []).map((t: any) => ({ id: t.id, name: t.name })),
       });
     } catch {}
   }
@@ -198,6 +200,18 @@ export default function DashboardPage() {
         body: JSON.stringify({ status: 'active' }),
       });
       await selectWorkUnit(selectedWorkUnit.id);
+    } catch {}
+  }
+
+  async function assignFromPanel(execution: any) {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await fetch(`${API_URL}/api/executions/${execution.id}/approve-application`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (selectedWorkUnit) await selectWorkUnit(selectedWorkUnit.id);
     } catch {}
   }
 
@@ -584,10 +598,19 @@ export default function DashboardPage() {
                 {/* Tab 2: Execution */}
                 {sidePanelTab === 'execution' && (
                   <div className="space-y-4 text-xs">
-                    {/* Interview */}
+                    {/* Interview template attachment */}
                     <div>
                       <span className="text-slate-400 block mb-1">Screening interview</span>
-                      <p className="text-slate-700">{selectedWorkUnit.infoCollectionTemplateId ? `Attached (${selectedWorkUnit.infoCollectionTemplateId.slice(0, 8)})` : 'None'}</p>
+                      <select
+                        value={selectedWorkUnit.infoCollectionTemplateId || ''}
+                        onChange={e => updateWorkUnitField('infoCollectionTemplateId', e.target.value || null)}
+                        className="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-200 focus:border-slate-900 focus:ring-0 py-1"
+                      >
+                        <option value="">None — direct accept</option>
+                        {(sideData.templates || []).map((t: any) => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
                     </div>
 
                     {/* Milestones */}
@@ -612,6 +635,21 @@ export default function DashboardPage() {
                             {e.milestones?.length > 0 && (
                               <p className="text-slate-400">{e.milestones.filter((m: any) => m.completedAt).length}/{e.milestones.length} milestones</p>
                             )}
+
+                            {/* Screening pending — show link */}
+                            {e.status === 'pending_screening' && (
+                              <p className="text-slate-400 mt-1">awaiting screening interview</p>
+                            )}
+
+                            {/* Manual mode: pending review — assign or reject */}
+                            {e.status === 'pending_review' && (
+                              <div className="flex gap-3 mt-1.5">
+                                <button onClick={() => assignFromPanel(e)} className="text-slate-500 hover:text-slate-900">assign</button>
+                                <button onClick={() => cancelExecutionFromPanel(e.id)} className="text-slate-400 hover:text-slate-600">reject</button>
+                              </div>
+                            )}
+
+                            {/* Submitted — review */}
                             {e.status === 'submitted' && (
                               <div className="flex gap-3 mt-1.5">
                                 <button onClick={() => reviewFromPanel(e.id, 'approved')} className="text-slate-500 hover:text-slate-900">approve</button>
@@ -619,9 +657,12 @@ export default function DashboardPage() {
                                 <button onClick={() => reviewFromPanel(e.id, 'failed')} className="text-slate-500 hover:text-slate-900">reject</button>
                               </div>
                             )}
+
+                            {/* Active — cancel */}
                             {['assigned', 'clocked_in', 'revision_needed'].includes(e.status) && (
                               <button onClick={() => cancelExecutionFromPanel(e.id)} className="text-slate-400 hover:text-slate-600 mt-1">cancel</button>
                             )}
+
                             {e.qualityScore != null && <p className="text-slate-400">quality: {e.qualityScore}%</p>}
                           </div>
                         ))

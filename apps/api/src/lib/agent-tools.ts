@@ -279,6 +279,7 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'get_work_unit_sessions', description: 'List interview sessions for a work unit', parameters: { type: 'object', properties: { workUnitId: { type: 'string' } }, required: ['workUnitId'] } } },
   { type: 'function' as const, function: { name: 'get_qa_results', description: 'Get QA check results for an execution', parameters: { type: 'object', properties: { executionId: { type: 'string' } }, required: ['executionId'] } } },
   // --- Execution Tracking ---
+  { type: 'function' as const, function: { name: 'approve_application', description: 'Approve a pending application in manual mode — moves from pending_review to assigned', parameters: { type: 'object', properties: { executionId: { type: 'string' } }, required: ['executionId'] } } },
   { type: 'function' as const, function: { name: 'list_review_queue', description: 'List all submissions awaiting review', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'get_revisions', description: 'Get revision history for an execution', parameters: { type: 'object', properties: { executionId: { type: 'string' } }, required: ['executionId'] } } },
   { type: 'function' as const, function: { name: 'cancel_execution', description: 'Cancel an active execution', parameters: { type: 'object', properties: { executionId: { type: 'string' }, reason: { type: 'string' } }, required: ['executionId'] } } },
@@ -357,6 +358,7 @@ export async function executeTool(
       case 'get_work_unit_sessions': return await toolGetWorkUnitSessions(args, companyId);
       case 'get_qa_results': return await toolGetQAResults(args, companyId);
       // Execution Tracking
+      case 'approve_application': return await toolApproveApplication(args, companyId);
       case 'list_review_queue': return await toolListReviewQueue(companyId);
       case 'get_revisions': return await toolGetRevisions(args, companyId);
       case 'cancel_execution': return await toolCancelExecution(args, companyId);
@@ -887,6 +889,17 @@ async function toolGetQAResults(args: any, companyId: string): Promise<string> {
 // ============================================================
 // EXECUTION TRACKING (5 tools)
 // ============================================================
+
+async function toolApproveApplication(args: any, companyId: string): Promise<string> {
+  const exec = await db.execution.findFirst({
+    where: { id: args.executionId, workUnit: { companyId }, status: 'pending_review' },
+    include: { workUnit: true, student: true },
+  });
+  if (!exec) return 'Pending application not found.';
+  await db.execution.update({ where: { id: args.executionId }, data: { status: 'assigned' } });
+  await db.workUnit.update({ where: { id: exec.workUnitId }, data: { status: 'in_progress' } });
+  return `Approved ${exec.student.name} for "${exec.workUnit.title}". They can now clock in and start working.`;
+}
 
 async function toolListReviewQueue(companyId: string): Promise<string> {
   const execs = await db.execution.findMany({
