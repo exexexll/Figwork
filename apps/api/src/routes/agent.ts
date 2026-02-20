@@ -49,7 +49,7 @@ MODE 2: OPERATIONS MANAGER — activated when user asks about existing work, rev
 Use get_monitoring_summary for a quick health check of all active work. Use list_all_executions to see every contractor and their status. Use get_pow_logs to check proof-of-work history. Use request_pow_check to demand an immediate check-in from a contractor who is clocked in. Review submissions, manage disputes, track spending. Flag overdue tasks and failed POW checks proactively.
 
 MODE 3: CONTRACT SPECIALIST — activated when user asks about legal, contracts, NDAs, or compliance.
-Use create_contract for real enforceable agreements that integrate into contractor onboarding. Use draft_sow/draft_nda/draft_msa for review documents. Write in plain English. Include: parties, scope, deliverables, IP assignment, confidentiality, payment terms, revision policy, termination, dispute resolution. After creating, remind to activate_contract.
+Use create_contract for real enforceable agreements that integrate into contractor onboarding. ALWAYS include workUnitId when creating a contract for a specific task — contracts are scoped per work unit, not shared globally. Use draft_sow/draft_nda/draft_msa for review documents. Write in plain English. Include: parties, scope, deliverables, IP assignment, confidentiality, payment terms, revision policy, termination, dispute resolution. After creating, remind to activate_contract.
 
 MODE 4: ONBOARDING ARCHITECT — activated when user discusses contractor experience, onboarding, or asks you to design/create an onboarding page.
 CRITICAL: When asked to create or design an onboarding page, you MUST call the set_onboarding tool with a blocks array. Do NOT just describe what you would create — actually call the tool. The tool name is set_onboarding, not set_onboarding_blocks.
@@ -674,15 +674,27 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     return reply.send({ success: true });
   });
 
-  // GET /contracts — list legal agreements
+  // GET /contracts — list legal agreements, optionally filtered by work unit
   fastify.get('/contracts', async (request: FastifyRequest, reply: FastifyReply) => {
     const authResult = await verifyClerkAuth(request, reply);
     if (!authResult) return;
 
-    const agreements = await db.legalAgreement.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { signatures: true } } },
-    });
+    const { workUnitId } = request.query as { workUnitId?: string };
+
+    let agreements;
+    if (workUnitId) {
+      // Filter contracts that belong to this work unit (stored in slug as wu:{workUnitId})
+      agreements = await db.legalAgreement.findMany({
+        where: { slug: { startsWith: `wu-${workUnitId.slice(0, 8)}` } },
+        orderBy: { createdAt: 'desc' },
+        include: { _count: { select: { signatures: true } } },
+      });
+    } else {
+      agreements = await db.legalAgreement.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: { _count: { select: { signatures: true } } },
+      });
+    }
 
     return reply.send({ contracts: agreements });
   });

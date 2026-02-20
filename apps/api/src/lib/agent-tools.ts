@@ -1366,7 +1366,9 @@ Figwork, Inc.: _______________  Date: ___________`;
 // ============================================================
 
 async function toolCreateContract(args: any, companyId: string): Promise<string> {
-  const slug = args.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 80) + '-' + Date.now().toString(36);
+  // Embed work unit ID in slug for per-work-unit filtering
+  const wuPrefix = args.workUnitId ? `wu-${args.workUnitId.slice(0, 8)}-` : '';
+  const slug = wuPrefix + args.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60) + '-' + Date.now().toString(36);
 
   const agreement = await db.legalAgreement.create({
     data: {

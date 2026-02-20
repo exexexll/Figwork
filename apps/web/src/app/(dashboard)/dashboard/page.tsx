@@ -419,7 +419,9 @@ export default function DashboardPage() {
   async function loadContracts() {
     try {
       const t = await getToken(); if (!t) return;
-      const res = await fetch(`${API_URL}/api/agent/contracts`, { headers: { Authorization: `Bearer ${t}` } });
+      const wuId = selectedWU?.id;
+      const url = wuId ? `${API_URL}/api/agent/contracts?workUnitId=${wuId}` : `${API_URL}/api/agent/contracts`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${t}` } });
       if (res.ok) {
         const data = await res.json();
         setContracts(data.contracts || []);
@@ -987,14 +989,14 @@ export default function DashboardPage() {
                         </div>
 
                         <div className="pt-3 border-t border-slate-100 space-y-2">
-                          <button onClick={() => setInput(`Create a contractor agreement for "${selectedWU?.title}" that covers scope of work, deliverables, IP assignment, confidentiality, payment terms, and termination. Attach it to this work unit.`)}
-                            className="block text-xs text-slate-600 hover:text-slate-900">
-                            create task-specific contract →
-                          </button>
-                          <button onClick={() => setInput('Create a general NDA for all contractors')}
-                            className="block text-xs text-slate-600 hover:text-slate-900">
-                            create NDA →
-                          </button>
+                      <button onClick={() => setInput(`Create a contractor agreement for "${selectedWU?.title}" (work unit ID: ${selectedWU?.id}) that covers scope of work, deliverables, IP assignment, confidentiality, payment terms, and termination. Attach it to this work unit using the workUnitId.`)}
+                        className="block text-xs text-slate-600 hover:text-slate-900">
+                        create task-specific contract →
+                      </button>
+                      <button onClick={() => setInput(`Create an NDA for "${selectedWU?.title}" (work unit ID: ${selectedWU?.id}). Attach it to this work unit.`)}
+                        className="block text-xs text-slate-600 hover:text-slate-900">
+                        create NDA →
+                      </button>
                           <button onClick={() => setInput(`Draft a statement of work for "${selectedWU?.title}" — $${((selectedWU?.priceInCents || 0) / 100).toFixed(0)}, ${selectedWU?.deadlineHours}h`)}
                             className="block text-xs text-slate-600 hover:text-slate-900">
                             draft SOW →
