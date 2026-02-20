@@ -319,6 +319,10 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'activate_contract', description: 'Set a contract to active so contractors must sign it during onboarding', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'set_onboarding', description: 'Set the contractor onboarding page for a work unit — welcome, instructions, checklist, examples, communication channels, and deliverable format', parameters: { type: 'object', properties: { workUnitId: { type: 'string' }, welcome: { type: 'string', description: 'Welcome message' }, instructions: { type: 'string', description: 'Step-by-step instructions' }, exampleWorkUrls: { type: 'array', items: { type: 'string' }, description: 'URLs to example deliverables' }, checklist: { type: 'array', items: { type: 'string' }, description: 'Checklist items' }, communicationChannel: { type: 'string', description: 'How to communicate — e.g. Slack invite link, email, Discord, or Figwork platform only' }, deliverableSubmissionMethod: { type: 'string', description: 'How to submit — e.g. Google Drive link, GitHub PR, upload to Figwork, email attachment' } }, required: ['workUnitId'] } } },
   { type: 'function' as const, function: { name: 'get_onboarding', description: 'Get the current onboarding page config for a work unit', parameters: { type: 'object', properties: { workUnitId: { type: 'string' } }, required: ['workUnitId'] } } },
+  { type: 'function' as const, function: { name: 'list_all_executions', description: 'List ALL active executions across all work units — monitoring dashboard', parameters: { type: 'object', properties: {} } } },
+  { type: 'function' as const, function: { name: 'get_pow_logs', description: 'Get proof-of-work check-in logs for an execution', parameters: { type: 'object', properties: { executionId: { type: 'string' } }, required: ['executionId'] } } },
+  { type: 'function' as const, function: { name: 'request_pow_check', description: 'Request an immediate proof-of-work check-in from a contractor', parameters: { type: 'object', properties: { executionId: { type: 'string' } }, required: ['executionId'] } } },
+  { type: 'function' as const, function: { name: 'get_monitoring_summary', description: 'Get a summary of all active work — deadlines at risk, inactive contractors, overdue tasks', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'web_search', description: 'Search the web for information — use when the user asks about market rates, competitor analysis, industry standards, legal requirements, or anything you need current data for', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Search query' } }, required: ['query'] } } },
   { type: 'function' as const, function: { name: 'get_company_profile', description: 'View company profile details', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'update_company_profile', description: 'Edit company name, website, address', parameters: { type: 'object', properties: { companyName: { type: 'string' }, legalName: { type: 'string' }, website: { type: 'string' } } } } },
@@ -417,6 +421,10 @@ export async function executeTool(
       case 'activate_contract': return await toolActivateContract(args);
       case 'set_onboarding': return await toolSetOnboarding(args, companyId);
       case 'get_onboarding': return await toolGetOnboarding(args, companyId);
+      case 'list_all_executions': return await toolListAllExecutions(companyId);
+      case 'get_pow_logs': return await toolGetPOWLogs(args, companyId);
+      case 'request_pow_check': return await toolRequestPOWCheck(args, companyId);
+      case 'get_monitoring_summary': return await toolGetMonitoringSummary(companyId);
       case 'web_search': return await toolWebSearch(args);
       case 'get_company_profile': return await toolGetCompanyProfile(companyId);
       case 'update_company_profile': return await toolUpdateCompanyProfile(args, companyId);
@@ -1322,6 +1330,123 @@ async function toolGetOnboarding(args: any, companyId: string): Promise<string> 
   if (page.exampleWorkUrls?.length) r += `Examples: ${page.exampleWorkUrls.join(', ')}\n`;
   if (page.checklist?.length) r += `Checklist:\n${page.checklist.map((c: string, i: number) => `${i + 1}. ${c}`).join('\n')}`;
   return r || 'Onboarding page is empty.';
+}
+
+// ============================================================
+// MONITORING (4 tools)
+// ============================================================
+
+async function toolListAllExecutions(companyId: string): Promise<string> {
+  const execs = await db.execution.findMany({
+    where: {
+      workUnit: { companyId },
+      status: { in: ['assigned', 'clocked_in', 'submitted', 'revision_needed', 'pending_review', 'pending_screening'] },
+    },
+    include: {
+      workUnit: { select: { title: true } },
+      student: { select: { name: true } },
+    },
+    orderBy: { assignedAt: 'desc' },
+    take: 30,
+  });
+  if (execs.length === 0) return 'No active executions.';
+
+  return execs.map(e => {
+    const deadline = e.deadlineAt ? new Date(e.deadlineAt) : null;
+    const isOverdue = deadline && deadline < new Date();
+    const hoursLeft = deadline ? Math.round((deadline.getTime() - Date.now()) / 3600000) : null;
+    return `${e.workUnit.title} — ${e.student.name} — ${e.status}${isOverdue ? ' OVERDUE' : ''}${hoursLeft !== null ? ` (${hoursLeft}h left)` : ''} [${e.id.slice(0, 8)}]`;
+  }).join('\n');
+}
+
+async function toolGetPOWLogs(args: any, companyId: string): Promise<string> {
+  const exec = await db.execution.findUnique({
+    where: { id: args.executionId },
+    include: { workUnit: { select: { companyId: true, title: true } } },
+  });
+  if (!exec || exec.workUnit.companyId !== companyId) return 'Execution not found.';
+
+  const logs = await db.proofOfWorkLog.findMany({
+    where: { executionId: args.executionId },
+    orderBy: { requestedAt: 'desc' },
+    take: 10,
+  });
+
+  if (logs.length === 0) return `No POW logs for "${exec.workUnit.title}".`;
+
+  return `POW logs for "${exec.workUnit.title}":\n` + logs.map(l => {
+    const time = new Date(l.requestedAt).toLocaleString();
+    return `${time} — ${l.status}${l.workPhotoUrl ? ' (photo submitted)' : ''}`;
+  }).join('\n');
+}
+
+async function toolRequestPOWCheck(args: any, companyId: string): Promise<string> {
+  const exec = await db.execution.findUnique({
+    where: { id: args.executionId },
+    include: { workUnit: { select: { companyId: true, title: true } }, student: { select: { name: true, id: true } } },
+  });
+  if (!exec || exec.workUnit.companyId !== companyId) return 'Execution not found.';
+  if (exec.status !== 'clocked_in') return `Cannot request POW — contractor is ${exec.status}, not clocked in.`;
+
+  // Create POW request
+  await db.proofOfWorkLog.create({
+    data: {
+      executionId: args.executionId,
+      studentId: exec.student.id,
+      requestedAt: new Date(),
+      status: 'pending',
+    },
+  });
+
+  return `POW check requested for ${exec.student.name} on "${exec.workUnit.title}". They have 10 minutes to submit a photo and progress update.`;
+}
+
+async function toolGetMonitoringSummary(companyId: string): Promise<string> {
+  const now = new Date();
+
+  const [allExecs, overdueExecs, recentPOW] = await Promise.all([
+    db.execution.findMany({
+      where: { workUnit: { companyId }, status: { in: ['assigned', 'clocked_in', 'submitted', 'revision_needed'] } },
+      include: { workUnit: { select: { title: true } }, student: { select: { name: true } } },
+    }),
+    db.execution.findMany({
+      where: { workUnit: { companyId }, status: { in: ['assigned', 'clocked_in'] }, deadlineAt: { lt: now } },
+      include: { workUnit: { select: { title: true } }, student: { select: { name: true } } },
+    }),
+    db.proofOfWorkLog.findMany({
+      where: { execution: { workUnit: { companyId } }, status: 'failed' },
+      orderBy: { requestedAt: 'desc' },
+      take: 5,
+      include: { execution: { include: { workUnit: { select: { title: true } }, student: { select: { name: true } } } } },
+    }),
+  ]);
+
+  const clockedIn = allExecs.filter(e => e.status === 'clocked_in');
+  const assigned = allExecs.filter(e => e.status === 'assigned');
+  const submitted = allExecs.filter(e => e.status === 'submitted');
+
+  let r = `Active: ${allExecs.length} executions (${clockedIn.length} working, ${assigned.length} waiting to start, ${submitted.length} awaiting review)`;
+
+  if (overdueExecs.length > 0) {
+    r += `\n\nOVERDUE (${overdueExecs.length}):`;
+    for (const e of overdueExecs) {
+      const hoursOver = Math.round((now.getTime() - e.deadlineAt!.getTime()) / 3600000);
+      r += `\n  ${e.workUnit.title} — ${e.student.name} — ${hoursOver}h overdue`;
+    }
+  }
+
+  if (recentPOW.length > 0) {
+    r += `\n\nFailed POW checks:`;
+    for (const p of recentPOW) {
+      r += `\n  ${p.execution.workUnit.title} — ${p.execution.student.name}`;
+    }
+  }
+
+  if (overdueExecs.length === 0 && recentPOW.length === 0) {
+    r += '\n\nNo issues detected.';
+  }
+
+  return r;
 }
 
 async function toolWebSearch(args: any): Promise<string> {
