@@ -249,15 +249,19 @@ export async function paymentRoutes(fastify: FastifyInstance) {
     });
 
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    const monthlySpend = await db.paymentTransaction.aggregate({
-      where: {
-        companyId: company.id,
-        type: { in: ['escrow_funding', 'task_payment'] },
-        createdAt: { gte: monthStart },
-        status: 'completed',
-      },
-      _sum: { amountInCents: true, feeInCents: true },
-    });
+    // Count both payment transactions AND escrows funded this month (agent creates escrows without transactions)
+    const [monthlyTxns, monthlyEscrows] = await Promise.all([
+      db.paymentTransaction.aggregate({
+        where: { companyId: company.id, type: { in: ['escrow_funding', 'task_payment'] }, createdAt: { gte: monthStart }, status: 'completed' },
+        _sum: { amountInCents: true, feeInCents: true },
+      }),
+      db.escrow.aggregate({
+        where: { companyId: company.id, status: { in: ['funded', 'released'] }, fundedAt: { gte: monthStart } },
+        _sum: { amountInCents: true },
+      }),
+    ]);
+    // Use the higher of the two (escrow total is more accurate since agent bypasses transactions)
+    const monthlySpendAmount = Math.max(monthlyTxns._sum.amountInCents || 0, monthlyEscrows._sum.amountInCents || 0);
 
     const budgetPeriod = await db.budgetPeriod.findUnique({
       where: {
@@ -272,8 +276,8 @@ export async function paymentRoutes(fastify: FastifyInstance) {
     return reply.send({
       activeEscrowInCents: activeEscrow._sum.amountInCents || 0,
       pendingEscrowInCents: pendingEscrow._sum.amountInCents || 0,
-      monthlySpendInCents: monthlySpend._sum.amountInCents || 0,
-      monthlyFeesInCents: monthlySpend._sum.feeInCents || 0,
+      monthlySpendInCents: monthlySpendAmount,
+      monthlyFeesInCents: monthlyTxns._sum.feeInCents || 0,
       budgetCapInCents: budgetPeriod?.budgetCapInCents,
       budgetRemainingInCents: budgetPeriod
         ? (budgetPeriod.budgetCapInCents || 0) - (budgetPeriod.totalSpentInCents + budgetPeriod.totalEscrowedInCents)

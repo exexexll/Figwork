@@ -288,11 +288,11 @@ export default async function agentRoutes(fastify: FastifyInstance) {
 
       while (maxLoops-- > 0) {
         const stream = await openai.chat.completions.create({
-          model: 'gpt-4o',
+          model: 'gpt-4.1',
           messages: loopMessages,
           tools: TOOL_DEFINITIONS,
           stream: true,
-          max_tokens: 4096,
+          max_tokens: 8192,
         });
 
         let currentContent = '';
@@ -431,7 +431,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
       try {
         const suggestionPrompt = `Based on this conversation, suggest 3-4 short next actions the user might want to take. Return ONLY a JSON array of strings, no explanation. Example: ["Publish this task","Create a contract","Set up onboarding"]. Keep each under 30 chars.`;
         const suggestionRes = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: 'gpt-4.1-mini',
           messages: [
             ...loopMessages.slice(-6),
             { role: 'user', content: suggestionPrompt },
