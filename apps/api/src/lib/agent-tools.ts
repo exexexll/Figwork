@@ -317,7 +317,7 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'get_contract', description: 'Get a contract with its content and signature status', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'update_contract', description: 'Update a contract — bumps version, optionally requires re-signing', parameters: { type: 'object', properties: { contractId: { type: 'string' }, title: { type: 'string' }, content: { type: 'string' }, requiresResign: { type: 'boolean' } }, required: ['contractId'] } } },
   { type: 'function' as const, function: { name: 'activate_contract', description: 'Set a contract to active so contractors must sign it during onboarding', parameters: { type: 'object', properties: { contractId: { type: 'string' } }, required: ['contractId'] } } },
-  { type: 'function' as const, function: { name: 'set_onboarding', description: 'Set the contractor onboarding page for a work unit — welcome message, instructions, example work URLs, and reference files', parameters: { type: 'object', properties: { workUnitId: { type: 'string' }, welcome: { type: 'string', description: 'Welcome message shown to contractor' }, instructions: { type: 'string', description: 'Step-by-step instructions' }, exampleWorkUrls: { type: 'array', items: { type: 'string' }, description: 'URLs to example deliverables or reference files' }, checklist: { type: 'array', items: { type: 'string' }, description: 'Checklist items the contractor should complete' } }, required: ['workUnitId'] } } },
+  { type: 'function' as const, function: { name: 'set_onboarding', description: 'Set the contractor onboarding page for a work unit — welcome, instructions, checklist, examples, communication channels, and deliverable format', parameters: { type: 'object', properties: { workUnitId: { type: 'string' }, welcome: { type: 'string', description: 'Welcome message' }, instructions: { type: 'string', description: 'Step-by-step instructions' }, exampleWorkUrls: { type: 'array', items: { type: 'string' }, description: 'URLs to example deliverables' }, checklist: { type: 'array', items: { type: 'string' }, description: 'Checklist items' }, communicationChannel: { type: 'string', description: 'How to communicate — e.g. Slack invite link, email, Discord, or Figwork platform only' }, deliverableSubmissionMethod: { type: 'string', description: 'How to submit — e.g. Google Drive link, GitHub PR, upload to Figwork, email attachment' } }, required: ['workUnitId'] } } },
   { type: 'function' as const, function: { name: 'get_onboarding', description: 'Get the current onboarding page config for a work unit', parameters: { type: 'object', properties: { workUnitId: { type: 'string' } }, required: ['workUnitId'] } } },
   { type: 'function' as const, function: { name: 'get_company_profile', description: 'View company profile details', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'update_company_profile', description: 'Edit company name, website, address', parameters: { type: 'object', properties: { companyName: { type: 'string' }, legalName: { type: 'string' }, website: { type: 'string' } } } } },
@@ -1287,11 +1287,14 @@ async function toolSetOnboarding(args: any, companyId: string): Promise<string> 
   const existing = (typeof company.address === 'object' && company.address) || {};
   const onboardingPages = (existing as any).onboardingPages || {};
 
+  const prev = onboardingPages[args.workUnitId] || {};
   onboardingPages[args.workUnitId] = {
-    welcome: args.welcome || onboardingPages[args.workUnitId]?.welcome || '',
-    instructions: args.instructions || onboardingPages[args.workUnitId]?.instructions || '',
-    exampleWorkUrls: args.exampleWorkUrls || onboardingPages[args.workUnitId]?.exampleWorkUrls || [],
-    checklist: args.checklist || onboardingPages[args.workUnitId]?.checklist || [],
+    welcome: args.welcome ?? prev.welcome ?? '',
+    instructions: args.instructions ?? prev.instructions ?? '',
+    exampleWorkUrls: args.exampleWorkUrls ?? prev.exampleWorkUrls ?? [],
+    checklist: args.checklist ?? prev.checklist ?? [],
+    communicationChannel: args.communicationChannel ?? prev.communicationChannel ?? '',
+    deliverableSubmissionMethod: args.deliverableSubmissionMethod ?? prev.deliverableSubmissionMethod ?? '',
   };
 
   await db.companyProfile.update({

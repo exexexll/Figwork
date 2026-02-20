@@ -70,8 +70,8 @@ export default function TaskDetailPage() {
       const result = await acceptTask(taskId, token);
       track(EVENTS.TASK_ACCEPTED, { workUnitId: taskId, requiresScreening: result.requiresScreening });
 
-      // Redirect to execution detail (which will show interview banner if needed)
-      router.push(`/student/executions/${result.id}`);
+      // Redirect to onboarding page (shows contracts, instructions, then execution)
+      router.push(`/student/executions/${result.id}/onboard`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to accept task';
       setError(message);

@@ -415,6 +415,33 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     return reply.send({ success: true });
   });
 
+  // GET /onboarding/:workUnitId — get onboarding page for a work unit (public for students)
+  fastify.get<{ Params: { workUnitId: string } }>('/onboarding/:workUnitId', async (request, reply) => {
+    const { workUnitId } = request.params;
+
+    const wu = await db.workUnit.findUnique({
+      where: { id: workUnitId },
+      select: { companyId: true, deliverableFormat: true },
+    });
+    if (!wu) return reply.status(404).send({ error: 'Not found' });
+
+    const company = await db.companyProfile.findUnique({ where: { id: wu.companyId } });
+    if (!company) return reply.status(404).send({ error: 'Not found' });
+
+    const pages = ((company.address as any)?.onboardingPages || {});
+    const page = pages[workUnitId] || {};
+
+    return reply.send({
+      welcome: page.welcome || '',
+      instructions: page.instructions || '',
+      checklist: page.checklist || [],
+      exampleWorkUrls: page.exampleWorkUrls || [],
+      communicationChannel: page.communicationChannel || '',
+      deliverableSubmissionMethod: page.deliverableSubmissionMethod || '',
+      deliverableFormat: wu.deliverableFormat || [],
+    });
+  });
+
   // GET /contracts — list legal agreements
   fastify.get('/contracts', async (request: FastifyRequest, reply: FastifyReply) => {
     const authResult = await verifyClerkAuth(request, reply);
