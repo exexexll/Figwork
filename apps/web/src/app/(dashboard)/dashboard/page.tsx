@@ -40,6 +40,7 @@ export default function DashboardPage() {
   const [sideData, setSideData] = useState<any>(null);
   const [selectedWorkUnit, setSelectedWorkUnit] = useState<any>(null);
   const [sidePanelTab, setSidePanelTab] = useState<'overview' | 'execution' | 'financial'>('overview');
+  const [selectedInterviewDetail, setSelectedInterviewDetail] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -137,7 +138,67 @@ export default function DashboardPage() {
         const data = await res.json();
         setSelectedWorkUnit(data);
         setSidePanelTab('overview');
+        // Load interview detail if attached
+        if (data.infoCollectionTemplateId) {
+          loadInterviewDetail(data.infoCollectionTemplateId);
+        } else {
+          setSelectedInterviewDetail(null);
+        }
       }
+    } catch {}
+  }
+
+  async function loadInterviewDetail(templateId: string) {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch(`${API_URL}/api/templates/${templateId}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedInterviewDetail(data.data || data);
+      }
+    } catch {}
+  }
+
+  async function updateInterviewField(field: string, value: any) {
+    if (!selectedInterviewDetail) return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await fetch(`${API_URL}/api/templates/${selectedInterviewDetail.id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: value }),
+      });
+      setSelectedInterviewDetail((prev: any) => prev ? { ...prev, [field]: value } : null);
+    } catch {}
+  }
+
+  async function addQuestionFromPanel(text: string) {
+    if (!selectedInterviewDetail) return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await fetch(`${API_URL}/api/templates/${selectedInterviewDetail.id}/questions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, rubric: null, maxFollowups: 2 }),
+      });
+      loadInterviewDetail(selectedInterviewDetail.id);
+    } catch {}
+  }
+
+  async function generateLinkFromPanel() {
+    if (!selectedInterviewDetail) return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await fetch(`${API_URL}/api/templates/${selectedInterviewDetail.id}/links`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ linkType: 'permanent' }),
+      });
+      loadInterviewDetail(selectedInterviewDetail.id);
     } catch {}
   }
 
@@ -598,19 +659,99 @@ export default function DashboardPage() {
                 {/* Tab 2: Execution */}
                 {sidePanelTab === 'execution' && (
                   <div className="space-y-4 text-xs">
-                    {/* Interview template attachment */}
+                    {/* Interview config — inline in work unit panel */}
                     <div>
-                      <span className="text-slate-400 block mb-1">Screening interview</span>
+                      <span className="text-slate-400 block mb-2">Screening interview</span>
                       <select
                         value={selectedWorkUnit.infoCollectionTemplateId || ''}
-                        onChange={e => updateWorkUnitField('infoCollectionTemplateId', e.target.value || null)}
-                        className="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-200 focus:border-slate-900 focus:ring-0 py-1"
+                        onChange={e => {
+                          const val = e.target.value || null;
+                          updateWorkUnitField('infoCollectionTemplateId', val);
+                          if (val) loadInterviewDetail(val);
+                          else setSelectedInterviewDetail(null);
+                        }}
+                        className="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-200 focus:border-slate-900 focus:ring-0 py-1 mb-2"
                       >
                         <option value="">None — direct accept</option>
                         {(sideData.templates || []).map((t: any) => (
                           <option key={t.id} value={t.id}>{t.name}</option>
                         ))}
                       </select>
+
+                      {/* If a template is attached, show its config inline */}
+                      {selectedWorkUnit.infoCollectionTemplateId && selectedInterviewDetail && (
+                        <div className="space-y-3 pt-2 border-t border-slate-50">
+                          <EditableField label="Name" value={selectedInterviewDetail.name} onSave={v => updateInterviewField('name', v)} />
+                          <EditableField label="Time limit (min)" value={`${selectedInterviewDetail.timeLimitMinutes}`} onSave={v => updateInterviewField('timeLimitMinutes', parseInt(v))} />
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Mode</span>
+                            <select
+                              value={selectedInterviewDetail.mode}
+                              onChange={e => updateInterviewField('mode', e.target.value)}
+                              className="text-xs text-slate-700 bg-transparent border-0 border-b border-slate-200 focus:border-slate-900 focus:ring-0 py-0.5"
+                            >
+                              <option value="application">application</option>
+                              <option value="inquiry">inquiry</option>
+                            </select>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">Voice output</span>
+                            <button
+                              onClick={() => updateInterviewField('enableVoiceOutput', !selectedInterviewDetail.enableVoiceOutput)}
+                              className={`text-xs ${selectedInterviewDetail.enableVoiceOutput ? 'text-slate-900' : 'text-slate-400'}`}
+                            >
+                              {selectedInterviewDetail.enableVoiceOutput ? 'on' : 'off'}
+                            </button>
+                          </div>
+
+                          {/* Questions */}
+                          <div>
+                            <span className="text-slate-400 block mb-1">Questions ({selectedInterviewDetail.questions?.length || 0})</span>
+                            {(selectedInterviewDetail.questions || []).map((q: any, i: number) => (
+                              <div key={q.id} className="py-1 border-b border-slate-50 last:border-0">
+                                <p className="text-slate-600">{i + 1}. {q.questionText}</p>
+                                {q.rubric && <p className="text-slate-400 text-[10px]">rubric: {q.rubric.slice(0, 60)}</p>}
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => {
+                                const text = prompt('Question text:');
+                                if (text) addQuestionFromPanel(text);
+                              }}
+                              className="text-slate-400 hover:text-slate-700 mt-1"
+                            >
+                              + add question
+                            </button>
+                          </div>
+
+                          {/* Links */}
+                          <div>
+                            <span className="text-slate-400 block mb-1">Links</span>
+                            {(selectedInterviewDetail.links || []).filter((l: any) => l.isActive).map((l: any) => (
+                              <p key={l.id} className="text-slate-600 truncate">{process.env.NEXT_PUBLIC_FRONTEND_URL || 'http://localhost:3000'}/interview/{l.token}</p>
+                            ))}
+                            <button onClick={generateLinkFromPanel} className="text-slate-400 hover:text-slate-700 mt-1">
+                              + generate link
+                            </button>
+                          </div>
+
+                          {/* Knowledge files */}
+                          <div>
+                            <span className="text-slate-400 block mb-1">Knowledge files ({selectedInterviewDetail.knowledgeFiles?.length || 0})</span>
+                            {(selectedInterviewDetail.knowledgeFiles || []).map((f: any) => (
+                              <p key={f.id} className="text-slate-600">{f.filename} — {f.status}</p>
+                            ))}
+                          </div>
+
+                          <div>
+                            <EditableTextArea
+                              value={selectedInterviewDetail.personaPrompt || ''}
+                              onSave={v => updateInterviewField('personaPrompt', v)}
+                            />
+                            <span className="text-slate-300 text-[10px]">persona prompt</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Milestones */}
