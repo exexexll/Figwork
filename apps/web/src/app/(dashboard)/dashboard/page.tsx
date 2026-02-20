@@ -789,6 +789,38 @@ export default function DashboardPage() {
                       <textarea value={getVal('spec', selectedWU.spec)} onChange={e => stageChange('spec', e.target.value)}
                         className="w-full text-xs text-slate-700 bg-transparent border border-slate-100 rounded p-2 focus:ring-0 focus:border-slate-300 resize-none mt-0.5" rows={5} />
                     </div>
+
+                    {/* Action buttons */}
+                    <div className="flex gap-2 pt-2 border-t border-slate-100">
+                      {selectedWU.status === 'active' && (
+                        <button onClick={() => stageChange('status', 'paused')}
+                          className="flex-1 py-1.5 text-xs text-amber-700 border border-amber-200 rounded hover:bg-amber-50 transition-colors">
+                          Pause
+                        </button>
+                      )}
+                      {selectedWU.status === 'paused' && (
+                        <button onClick={() => stageChange('status', 'active')}
+                          className="flex-1 py-1.5 text-xs text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-50 transition-colors">
+                          Unpause
+                        </button>
+                      )}
+                      {selectedWU.status === 'draft' && (
+                        <button onClick={fundAndPublish}
+                          className="flex-1 py-1.5 text-xs text-white bg-slate-900 rounded hover:bg-slate-800 transition-colors">
+                          Publish
+                        </button>
+                      )}
+                      <button onClick={async () => {
+                        if (!confirm(`Delete "${selectedWU.title}"?`)) return;
+                        const t = await getToken(); if (!t) return;
+                        await fetch(`${API_URL}/api/workunits/${selectedWU.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${t}` } });
+                        setSelectedWU(null);
+                        loadPanel();
+                      }}
+                        className="py-1.5 px-3 text-xs text-red-400 border border-red-200 rounded hover:bg-red-50 transition-colors">
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 )}
 
