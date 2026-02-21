@@ -637,12 +637,21 @@ export default function DashboardPage() {
 
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
   return (
-    <div className="flex h-[calc(100vh-48px)]">
-      {/* ── Chat (left) ── */}
-      <div className="flex-1 flex flex-col min-w-0">
+    <div className="flex h-[calc(100vh-48px)] relative">
+      {/* ── Chat ── */}
+      <div className={`flex-1 flex flex-col min-w-0 ${isMobile && panelOpen ? 'hidden' : ''}`}>
         {/* Conv switcher */}
-        <div className="h-9 flex items-center justify-between px-4 border-b border-slate-200/30 flex-shrink-0 relative">
+        <div className="h-9 flex items-center justify-between px-3 md:px-4 border-b border-slate-200/30 flex-shrink-0 relative">
           <button onClick={() => setShowConvList(!showConvList)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-700">
             {conversationId ? (conversations.find(c => c.id === conversationId)?.title?.slice(0, 40) || 'Chat') : 'New chat'}
             <ChevronDown className="w-3 h-3" />
@@ -665,12 +674,17 @@ export default function DashboardPage() {
             </div>
           )}
           {!panelOpen && (
-            <button onClick={() => { setPanelOpen(true); loadPanel(); }} className="text-[11px] text-slate-400 hover:text-slate-700">panel</button>
+            <button onClick={() => { setPanelOpen(true); loadPanel(); }}
+              className="text-[11px] text-slate-400 hover:text-slate-700 md:text-[11px] flex items-center gap-1">
+              <GripVertical className="w-3 h-3 md:hidden" />
+              <span className="hidden md:inline">panel</span>
+              <span className="md:hidden text-xs">Tasks</span>
+            </button>
           )}
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4">
           {messages.length === 0 ? (
             <div className="h-full flex items-center justify-center">
               <div className="max-w-md space-y-4">
@@ -716,7 +730,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Input */}
-        <div className="px-6 py-3 border-t border-slate-200/40 flex-shrink-0">
+        <div className="px-3 md:px-6 py-3 border-t border-slate-200/40 flex-shrink-0">
           {/* Floating suggestions */}
           {suggestions.length > 0 && messages.length > 0 && !streaming && (
             <div className="flex flex-wrap gap-1.5 mb-2">
@@ -815,17 +829,25 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Resize handle ── */}
-      {panelOpen && (
+      {/* ── Resize handle (desktop only) ── */}
+      {panelOpen && !isMobile && (
         <div onMouseDown={onMouseDown} className="w-1 cursor-col-resize bg-transparent hover:bg-slate-200 transition-colors flex-shrink-0" />
       )}
 
-      {/* ── Panel (right) ── */}
+      {/* ── Panel ── */}
       {panelOpen && (
-        <div style={{ width: panelWidth }} className="border-l border-slate-200/50 bg-gradient-to-b from-white/90 via-white/80 to-violet-50/30 flex flex-col flex-shrink-0 overflow-hidden">
+        <div
+          style={isMobile ? undefined : { width: panelWidth }}
+          className={`${isMobile ? 'absolute inset-0 z-30' : 'border-l border-slate-200/50'} bg-gradient-to-b from-white/95 via-white/90 to-violet-50/30 flex flex-col flex-shrink-0 overflow-hidden`}
+        >
           <div className="h-10 flex items-center justify-between px-4 border-b border-slate-100 flex-shrink-0">
             <span className="text-xs font-medium text-slate-700 truncate">{selectedWU ? selectedWU.title : 'Work units'}</span>
-            <button onClick={() => setPanelOpen(false)} className="text-slate-300 hover:text-slate-500"><X className="w-3.5 h-3.5" /></button>
+            <div className="flex items-center gap-2">
+              {isMobile && (
+                <button onClick={() => setPanelOpen(false)} className="text-xs text-violet-500 hover:text-violet-700">← Chat</button>
+              )}
+              <button onClick={() => setPanelOpen(false)} className="text-slate-300 hover:text-slate-500"><X className="w-3.5 h-3.5" /></button>
+            </div>
           </div>
 
           {/* Tabs */}

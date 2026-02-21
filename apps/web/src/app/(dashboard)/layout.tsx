@@ -74,7 +74,7 @@ export default function DashboardLayout({
       </div>
 
       {/* Header */}
-      <header className="h-12 border-b border-slate-200/50 bg-white/70 flex items-center justify-between px-5 flex-shrink-0 relative z-10">
+      <header className="h-12 border-b border-slate-200/50 bg-white/70 flex items-center justify-between px-3 md:px-5 flex-shrink-0 relative z-10">
         <Link href="/dashboard" className="flex items-center gap-2">
           <img src="/iconfigwork.png" alt="" className="h-6 w-6" />
           <span className="text-sm font-medium text-slate-800">figwork</span>
