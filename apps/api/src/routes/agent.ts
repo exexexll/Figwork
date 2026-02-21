@@ -148,6 +148,7 @@ function getToolStatusLabel(toolName: string, args: any): string {
     case 'plan_decompose': return 'Designing work units';
     case 'plan_price': return 'Calculating pricing';
     case 'plan_legal': return 'Drafting contracts & onboarding';
+    case 'plan_execute': return 'Executing plan (creating everything)';
     case 'get_execution_status': return 'Checking execution';
     default: return `Running ${toolName.replace(/_/g, ' ')}`;
   }

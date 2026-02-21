@@ -372,6 +372,7 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'plan_decompose', description: 'STEP 2: Break into work units. Reads the brief from step 1 automatically — no need to pass data.', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'plan_price', description: 'STEP 3: Price each work unit. Reads work units from step 2 automatically.', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'plan_legal', description: 'STEP 4: Generate contracts + onboarding. Reads everything from previous steps automatically.', parameters: { type: 'object', properties: {} } } },
+  { type: 'function' as const, function: { name: 'plan_execute', description: 'STEP 5: Execute the plan — creates all work units, contracts, and onboarding pages in the system. Call after the user approves the plan.', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'web_search', description: 'Search the web for information — use when the user asks about market rates, competitor analysis, industry standards, legal requirements, or anything you need current data for', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Search query' } }, required: ['query'] } } },
   { type: 'function' as const, function: { name: 'get_company_profile', description: 'View company profile details', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'update_company_profile', description: 'Edit company name, website, address', parameters: { type: 'object', properties: { companyName: { type: 'string' }, legalName: { type: 'string' }, website: { type: 'string' } } } } },
@@ -498,6 +499,7 @@ export async function executeTool(
       case 'plan_decompose': return await toolPlanDecompose(args, companyId);
       case 'plan_price': return await toolPlanPrice(args, companyId);
       case 'plan_legal': return await toolPlanLegal(args, companyId);
+      case 'plan_execute': return await toolPlanExecute(companyId);
       case 'web_search': return await toolWebSearch(args);
       case 'get_company_profile': return await toolGetCompanyProfile(companyId);
       case 'update_company_profile': return await toolUpdateCompanyProfile(args, companyId);
@@ -1881,6 +1883,122 @@ async function toolPlanLegal(args: any, companyId?: string): Promise<string> {
     const summary = allContracts.map((c, i) => `${i + 1}. "${c.title}" for ${c.taskTitle}`).join('\n');
     return `${allContracts.length} individual contracts + ${allOnboarding.length} onboarding pages ready:\n${summary}\n\nPlan complete. Ask the user to confirm before creating.`;
   } catch (e: any) { return `Legal planning failed: ${e.message?.slice(0, 100)}`; }
+}
+
+async function toolPlanExecute(companyId: string): Promise<string> {
+  const state = planState.get(companyId);
+  if (!state?.workUnits?.length) return 'No plan to execute. Run plan_analyze through plan_legal first.';
+
+  const results: string[] = [];
+  const createdWUIds: string[] = [];
+
+  try {
+    // 1. Create all work units
+    emitThinking(`Creating ${state.workUnits.length} work units...`);
+    for (let i = 0; i < state.workUnits.length; i++) {
+      const wu = state.workUnits[i];
+      emitThinking(`  Creating "${wu.title}" (${i + 1}/${state.workUnits.length})...`);
+
+      try {
+        const created = await db.workUnit.create({
+          data: {
+            companyId,
+            title: wu.title,
+            spec: wu.spec || '',
+            category: wu.category || 'general',
+            priceInCents: wu.priceInCents || 3000,
+            deadlineHours: wu.deadlineHours || 48,
+            requiredSkills: wu.requiredSkills || [],
+            acceptanceCriteria: wu.acceptanceCriteria || [{ criterion: 'Meets specification', required: true }],
+            deliverableFormat: wu.deliverableFormat || [],
+            requiredDocuments: [],
+            minTier: wu.minTier || 'novice',
+            complexityScore: wu.complexityScore || 1,
+            revisionLimit: wu.revisionLimit || 2,
+            status: 'draft',
+            assignmentMode: wu.assignmentMode || 'auto',
+            hasExamples: false,
+            exampleUrls: [],
+            preferredHistory: 0,
+            maxRevisionTendency: 0.3,
+          },
+        });
+
+        // Create escrow
+        const feePercent = PRICING_CONFIG.platformFees.novice;
+        const feeAmount = Math.round(created.priceInCents * feePercent);
+        await db.escrow.create({
+          data: {
+            workUnitId: created.id,
+            companyId,
+            amountInCents: created.priceInCents,
+            platformFeeInCents: feeAmount,
+            netAmountInCents: created.priceInCents - feeAmount,
+            status: 'pending',
+          },
+        });
+
+        createdWUIds.push(created.id);
+        results.push(`✓ "${wu.title}" ($${(created.priceInCents / 100).toFixed(0)})`);
+        emitThinking(`  ✓ Created ${created.id.slice(0, 8)}`);
+      } catch (e: any) {
+        results.push(`✗ "${wu.title}": ${e.message?.slice(0, 50)}`);
+      }
+    }
+
+    // 2. Create contracts per work unit
+    const contracts = state.legal?.contracts || [];
+    if (contracts.length > 0) {
+      emitThinking(`\nCreating ${contracts.length} contracts...`);
+      for (let i = 0; i < contracts.length; i++) {
+        const c = contracts[i];
+        const wuId = createdWUIds[c.taskIndex] || createdWUIds[0];
+        emitThinking(`  Creating contract "${c.title}" for WU ${(c.taskIndex || 0) + 1}...`);
+
+        try {
+          const slug = `wu-${wuId.slice(0, 8)}-${c.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}-${Date.now().toString(36)}`;
+          await db.legalAgreement.create({
+            data: { title: c.title, slug, content: c.content || '', version: 1, requiresResign: true, status: 'draft' },
+          });
+          results.push(`✓ Contract: "${c.title}"`);
+          emitThinking(`  ✓ Contract created`);
+        } catch (e: any) {
+          results.push(`✗ Contract "${c.title}": ${e.message?.slice(0, 50)}`);
+        }
+      }
+    }
+
+    // 3. Set onboarding per work unit
+    const onboarding = state.legal?.onboarding || [];
+    if (onboarding.length > 0) {
+      emitThinking(`\nSetting up ${onboarding.length} onboarding pages...`);
+      const company = await db.companyProfile.findUnique({ where: { id: companyId } });
+      if (company) {
+        const existing = (typeof company.address === 'object' && company.address) || {};
+        const pages = (existing as any).onboardingPages || {};
+
+        for (let i = 0; i < onboarding.length; i++) {
+          const ob = onboarding[i];
+          const wuId = createdWUIds[ob.taskIndex] || createdWUIds[i];
+          if (wuId && ob.blocks) {
+            pages[wuId] = { accentColor: '#a78bfa', blocks: ob.blocks.map((b: any, j: number) => ({ id: `plan-${i}-${j}`, ...b })) };
+            emitThinking(`  ✓ Onboarding for WU ${(ob.taskIndex || i) + 1}`);
+          }
+        }
+
+        await db.companyProfile.update({ where: { id: companyId }, data: { address: { ...existing, onboardingPages: pages } as any } });
+        results.push(`✓ ${onboarding.length} onboarding pages set`);
+      }
+    }
+
+    // Clear plan state
+    planState.delete(companyId);
+
+    emitThinking(`\nExecution complete.`);
+    return `Plan executed:\n${results.join('\n')}\n\n${createdWUIds.length} work units created (draft). Fund escrow and activate to publish.`;
+  } catch (e: any) {
+    return `Execution failed: ${e.message?.slice(0, 200)}`;
+  }
 }
 
 async function toolWebSearch(args: any): Promise<string> {
