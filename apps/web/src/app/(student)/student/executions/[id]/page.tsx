@@ -349,7 +349,7 @@ export default function ExecutionDetailPage() {
 
             {/* Applied timestamp */}
             <div className="pt-3 border-t border-slate-100 text-xs text-slate-400 text-center">
-              Applied {new Date(execution.assignedAt || execution.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              Applied {new Date(execution.assignedAt || (execution as any).createdAt || Date.now()).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
             </div>
           </div>
         </div>
