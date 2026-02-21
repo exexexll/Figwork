@@ -1750,37 +1750,23 @@ async function toolPlanAnalyze(args: any, companyId?: string): Promise<string> {
 async function toolPlanDecompose(args: any, companyId?: string): Promise<string> {
   const cid = companyId || 'default';
   const state = planState.get(cid);
-  // Use stored brief — NOT what the agent passes
   const brief = state?.brief;
   if (!brief) return 'No project brief found. Call plan_analyze first.';
 
   try {
-    // Step 1: get task list
-    const listRaw = await gpt52(
-      `You are a work architect. Break this project into individual tasks. Return JSON: {"tasks":[{"title":"...","category":"...","complexityScore":1-5,"minTier":"novice|pro|elite"}]}`,
+    // Single call: get tasks WITH specs in one shot — faster than 2-phase
+    const raw = await gpt52(
+      `You are a work architect. Break this project into tasks. For each, write a 1-paragraph spec. Return JSON: {"workUnits":[{"title":"...","spec":"(1 clear paragraph)","category":"...","requiredSkills":["..."],"deliverableFormat":["..."],"acceptanceCriteria":[{"criterion":"...","required":true}],"complexityScore":1-5,"minTier":"novice|pro|elite","deadlineHours":N,"revisionLimit":2,"assignmentMode":"auto"}]}`,
       JSON.stringify(brief),
-      3072
+      8192
     );
-    const taskList = parseJSON(listRaw).tasks || [];
-    if (taskList.length === 0) return 'Could not identify tasks from the brief.';
+    const workUnits = parseJSON(raw).workUnits || [];
+    if (workUnits.length === 0) return 'Could not identify tasks.';
 
-    // Step 2: detail specs in batches of 5
-    const allUnits: any[] = [];
-    for (let i = 0; i < taskList.length; i += 5) {
-      const batch = taskList.slice(i, i + 5);
-      const batchRaw = await gpt52(
-        `Write detailed specs for these tasks. Return JSON: {"workUnits":[{"title":"...","spec":"(2-3 paragraphs)","category":"...","requiredSkills":["..."],"deliverableFormat":["..."],"acceptanceCriteria":[{"criterion":"...","required":true}],"complexityScore":1-5,"minTier":"novice|pro|elite","deadlineHours":N,"revisionLimit":2,"assignmentMode":"auto"}]}`,
-        batch.map((t: any, j: number) => `${i + j + 1}. ${t.title} (${t.category}, complexity ${t.complexityScore})`).join('\n'),
-        4096
-      );
-      try { allUnits.push(...(parseJSON(batchRaw).workUnits || [])); } catch {}
-    }
+    planState.set(cid, { ...state, workUnits });
 
-    // Store server-side
-    planState.set(cid, { ...state, workUnits: allUnits });
-
-    const summary = allUnits.map((wu, i) => `${i + 1}. ${wu.title} (${wu.category}, ${wu.minTier})`).join('\n');
-    return `Decomposed into ${allUnits.length} work units:\n${summary}\n\nCall plan_price next.`;
+    const summary = workUnits.map((wu: any, i: number) => `${i + 1}. ${wu.title} — ${wu.category}, ${wu.minTier}, ${wu.deadlineHours}h`).join('\n');
+    return `${workUnits.length} work units:\n${summary}\n\nCall plan_price next.`;
   } catch (e: any) { return `Decomposition failed: ${e.message?.slice(0, 100)}`; }
 }
 
@@ -1791,29 +1777,23 @@ async function toolPlanPrice(args: any, companyId?: string): Promise<string> {
   if (!workUnits?.length) return 'No work units found. Call plan_decompose first.';
 
   try {
-    const allEstimates: any[] = [];
-    for (let i = 0; i < workUnits.length; i += 5) {
-      const batch = workUnits.slice(i, i + 5);
-      const raw = await gpt52(
-        `Price each work unit in cents. Return JSON: {"estimates":[{"title":"...","priceInCents":N,"reasoning":"...","estimatedHours":N}]}. Platform fee is 15%.`,
-        batch.map((wu: any, j: number) => `${i + j + 1}. ${wu.title} — complexity ${wu.complexityScore || 3}, tier: ${wu.minTier || 'novice'}, deadline: ${wu.deadlineHours || 48}h`).join('\n'),
-        2048
-      );
-      try { allEstimates.push(...(parseJSON(raw).estimates || [])); } catch {}
-    }
+    // Single call — price all at once
+    const taskList = workUnits.map((wu: any, i: number) => `${i + 1}. ${wu.title} — complexity ${wu.complexityScore || 3}, tier: ${wu.minTier || 'novice'}, ${wu.deadlineHours || 48}h`).join('\n');
+    const raw = await gpt52(
+      `Price each work unit in cents. Return JSON: {"estimates":[{"title":"...","priceInCents":N,"reasoning":"brief","estimatedHours":N}]}. Platform fee is 15%.`,
+      taskList,
+      4096
+    );
+    const estimates = parseJSON(raw).estimates || [];
 
-    const subtotal = allEstimates.reduce((s, e) => s + (e.priceInCents || 0), 0);
+    const subtotal = estimates.reduce((s: number, e: any) => s + (e.priceInCents || 0), 0);
     const fees = Math.round(subtotal * 0.15);
-    const result = { estimates: allEstimates, totalSubtotalCents: subtotal, platformFeesCents: fees, totalCents: subtotal + fees };
 
-    // Store and merge prices into work units
-    workUnits.forEach((wu: any, i: number) => {
-      if (allEstimates[i]) wu.priceInCents = allEstimates[i].priceInCents;
-    });
-    planState.set(cid, { ...state, workUnits, estimates: result });
+    workUnits.forEach((wu: any, i: number) => { if (estimates[i]) wu.priceInCents = estimates[i].priceInCents; });
+    planState.set(cid, { ...state, workUnits, estimates: { estimates, totalSubtotalCents: subtotal, platformFeesCents: fees, totalCents: subtotal + fees } });
 
-    const summary = allEstimates.map((e, i) => `${i + 1}. ${e.title} — $${((e.priceInCents || 0) / 100).toFixed(0)} (${e.reasoning})`).join('\n');
-    return `Priced ${allEstimates.length} tasks:\n${summary}\n\nTotal: $${(subtotal / 100).toFixed(0)} + $${(fees / 100).toFixed(0)} fees = $${((subtotal + fees) / 100).toFixed(0)}\n\nCall plan_legal next.`;
+    const summary = estimates.map((e: any, i: number) => `${i + 1}. ${e.title} — $${((e.priceInCents || 0) / 100).toFixed(0)}`).join('\n');
+    return `${estimates.length} tasks priced:\n${summary}\nTotal: $${((subtotal + fees) / 100).toFixed(0)} (incl. fees)\n\nCall plan_legal next.`;
   } catch (e: any) { return `Pricing failed: ${e.message?.slice(0, 100)}`; }
 }
 
