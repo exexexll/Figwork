@@ -344,12 +344,16 @@ Return JSON: {
           where: { workUnitId: id },
           data: { amountInCents: updates.priceInCents, platformFeeInCents: fee, netAmountInCents: updates.priceInCents - fee },
         });
-        // Reload with updated escrow
-        const refreshed = await db.workUnit.findUnique({ where: { id }, include: { milestoneTemplates: { orderBy: { orderIndex: 'asc' } }, escrow: true } });
-        return reply.send(refreshed);
       }
 
-      return reply.send(updated);
+      // Sync escrow on status change
+      if (updates.status === 'cancelled' && existing.status !== 'cancelled') {
+        await db.escrow.updateMany({ where: { workUnitId: id, status: { in: ['pending', 'funded'] } }, data: { status: 'refunded', releasedAt: new Date() } });
+      }
+
+      // Reload with updated escrow
+      const refreshed = await db.workUnit.findUnique({ where: { id }, include: { milestoneTemplates: { orderBy: { orderIndex: 'asc' } }, escrow: true } });
+      return reply.send(refreshed);
     }
   );
 

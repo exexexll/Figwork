@@ -577,7 +577,7 @@ async function toolUpdateWorkUnit(args: any, companyId: string): Promise<string>
 
   const updated = await db.workUnit.update({ where: { id: workUnitId }, data });
 
-  // Sync escrow if price changed
+  // Sync escrow on price change
   if (data.priceInCents) {
     const feePercent = updated.platformFeePercent || 0.15;
     const fee = Math.round(data.priceInCents * feePercent);
@@ -585,6 +585,16 @@ async function toolUpdateWorkUnit(args: any, companyId: string): Promise<string>
       where: { workUnitId },
       data: { amountInCents: data.priceInCents, platformFeeInCents: fee, netAmountInCents: data.priceInCents - fee },
     });
+  }
+
+  // Sync escrow on status change
+  if (data.status === 'cancelled') {
+    await db.escrow.updateMany({ where: { workUnitId, status: { in: ['pending', 'funded'] } }, data: { status: 'refunded', releasedAt: new Date() } });
+  } else if (data.status === 'paused') {
+    // Keep escrow funded but mark as held
+    // No change needed — escrow stays funded, just task is paused
+  } else if (data.status === 'active' && wu.status === 'paused') {
+    // Unpausing — escrow should already be funded, no change needed
   }
 
   const changes = Object.keys(data).filter(k => k !== 'publishedAt').join(', ');
@@ -908,6 +918,10 @@ async function toolDeleteWorkUnit(args: any, companyId: string): Promise<string>
       return `Cannot delete "${wu.title}" — it has ${wu.executions.length} active execution(s). Cancel them first.`;
     }
     await db.workUnit.update({ where: { id: wu.id }, data: { status: 'cancelled' } });
+    // Refund escrow on cancel
+    if (wu.escrow && ['pending', 'funded'].includes(wu.escrow.status)) {
+      await db.escrow.update({ where: { id: wu.escrow.id }, data: { status: 'refunded', releasedAt: new Date() } });
+    }
   }
 
   // Delete related records
