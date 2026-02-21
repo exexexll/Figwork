@@ -869,8 +869,8 @@ export default function DashboardPage() {
               <>
                 {/* Overview */}
                 {panelTab === 'overview' && (
-                  <div className="space-y-3">
-                    {/* Progress & SLA summary */}
+                  <div className="space-y-4">
+                    {/* ── Progress card ── */}
                     {(() => {
                       const execs = selectedWU.executions || [];
                       const deliverableCount = selectedWU.deliverableCount || Math.max(execs.length, 1);
@@ -885,99 +885,103 @@ export default function DashboardPage() {
                       const progress = deliverableCount > 0 ? Math.round((completed / deliverableCount) * 100) : 0;
 
                       return (
-                        <div className="space-y-2.5 pb-3 border-b border-slate-100">
-                          {/* Progress bar */}
-                          {execs.length > 0 && (
-                            <div>
-                              <div className="flex justify-between text-[10px] text-slate-400 mb-1">
-                                <span>{completed}/{deliverableCount} deliverables completed</span>
-                                <span>{progress}%</span>
-                              </div>
-                              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div className="h-full bg-slate-900 rounded-full transition-all" style={{ width: `${progress}%` }} />
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Stats row */}
-                          <div className="flex gap-4 text-[11px]">
-                            {active > 0 && <span className="text-slate-600">{active} working</span>}
-                            {submitted > 0 && <span className="text-slate-600">{submitted} awaiting review</span>}
-                            {revisions > 0 && <span className="text-slate-600">{revisions} in revision</span>}
-                            {execs.length === 0 && <span className="text-slate-400">No deliverables started</span>}
+                        <div className="rounded-lg bg-slate-50/80 p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-medium text-slate-700">{completed}/{deliverableCount} delivered</span>
+                            <span className="text-[11px] text-slate-400">{progress}%</span>
                           </div>
-
-                          {/* Deadline */}
-                          {hoursLeft !== null && (
-                            <div className="text-[11px] text-slate-500">
-                              {hoursLeft > 0
-                                ? `Next deadline in ${hoursLeft}h`
-                                : `Deadline overdue by ${Math.abs(hoursLeft)}h`}
-                            </div>
-                          )}
-
-                          {/* Revision limit */}
-                          <div className="text-[11px] text-slate-400">
-                            {selectedWU.revisionLimit} revisions allowed per submission
+                          <div className="h-1.5 bg-slate-200/60 rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 rounded-full transition-all" style={{ width: `${Math.max(progress, 2)}%` }} />
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
+                            {active > 0 && <span>{active} active</span>}
+                            {submitted > 0 && <span>{submitted} review</span>}
+                            {revisions > 0 && <span className="text-amber-600">{revisions} revision</span>}
+                            {hoursLeft !== null && (
+                              <span className={hoursLeft < 0 ? 'text-red-500' : ''}>
+                                {hoursLeft > 0 ? `${hoursLeft}h left` : `${Math.abs(hoursLeft)}h overdue`}
+                              </span>
+                            )}
+                            {execs.length === 0 && <span>No work started</span>}
                           </div>
                         </div>
                       );
                     })()}
 
+                    {/* ── Title & Status ── */}
                     <Row label="Title" value={getVal('title', selectedWU.title)} onChange={v => stageChange('title', v)} />
                     <SelectRow label="Status" value={getVal('status', selectedWU.status)} options={['draft', 'active', 'paused', 'cancelled']} onChange={v => stageChange('status', v)} />
-                    <Row label="Price ($)" value={`${((getVal('priceInCents', selectedWU.priceInCents)) / 100)}`} onChange={v => { const n = parseFloat(v); if (!isNaN(n)) stageChange('priceInCents', Math.round(n * 100)); }} />
-                    <Row label="Deadline (h)" value={`${getVal('deadlineHours', selectedWU.deadlineHours)}`} onChange={v => { const n = parseInt(v); if (!isNaN(n)) stageChange('deadlineHours', n); }} />
-                    <SelectRow label="Tier" value={getVal('minTier', selectedWU.minTier)} options={['novice', 'pro', 'elite']} onChange={v => stageChange('minTier', v)} />
-                    <SelectRow label="Assignment" value={getVal('assignmentMode', selectedWU.assignmentMode || 'auto')} options={['auto', 'manual']} onChange={v => stageChange('assignmentMode', v)} />
-                    <Row label="Complexity" value={`${getVal('complexityScore', selectedWU.complexityScore)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('complexityScore', Math.max(1, Math.min(5, n))); }} />
-                    <Row label="Revision limit" value={`${getVal('revisionLimit', selectedWU.revisionLimit)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('revisionLimit', Math.max(0, n)); }} />
-                    <Row label="Deliverables" value={`${getVal('deliverableCount', selectedWU.deliverableCount || 1)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('deliverableCount', Math.max(1, n)); }} />
-                    <div>
-                      <span className="text-slate-500 text-xs">Skills</span>
-                      <input value={getVal('requiredSkills', selectedWU.requiredSkills)?.join?.(', ') || ''} onChange={e => stageChange('requiredSkills', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
-                        className="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-100 focus:border-slate-400 focus:ring-0 py-1 mt-0.5" />
+
+                    {/* ── Pricing & Timeline ── */}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 pt-2 border-t border-slate-100">
+                      <Row label="Price ($)" value={`${((getVal('priceInCents', selectedWU.priceInCents)) / 100)}`} onChange={v => { const n = parseFloat(v); if (!isNaN(n)) stageChange('priceInCents', Math.round(n * 100)); }} />
+                      <Row label="Deadline (h)" value={`${getVal('deadlineHours', selectedWU.deadlineHours)}`} onChange={v => { const n = parseInt(v); if (!isNaN(n)) stageChange('deadlineHours', n); }} />
+                      <Row label="Deliverables" value={`${getVal('deliverableCount', selectedWU.deliverableCount || 1)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('deliverableCount', Math.max(1, n)); }} />
+                      <Row label="Revisions" value={`${getVal('revisionLimit', selectedWU.revisionLimit)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('revisionLimit', Math.max(0, n)); }} />
                     </div>
-                    <div>
-                      <span className="text-slate-500 text-xs">Criteria</span>
-                      {(selectedWU.acceptanceCriteria || []).map((c: any, i: number) => (
-                        <p key={i} className="text-slate-700 py-0.5 text-xs">{i + 1}. {c.criterion}</p>
-                      ))}
+
+                    {/* ── Matching ── */}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 pt-2 border-t border-slate-100">
+                      <SelectRow label="Tier" value={getVal('minTier', selectedWU.minTier)} options={['novice', 'pro', 'elite']} onChange={v => stageChange('minTier', v)} />
+                      <Row label="Complexity" value={`${getVal('complexityScore', selectedWU.complexityScore)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('complexityScore', Math.max(1, Math.min(5, n))); }} />
+                      <SelectRow label="Assignment" value={getVal('assignmentMode', selectedWU.assignmentMode || 'auto')} options={['auto', 'manual']} onChange={v => stageChange('assignmentMode', v)} />
                     </div>
-                    <div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-500 text-xs">Spec</span>
+
+                    {/* ── Skills ── */}
+                    <div className="pt-2 border-t border-slate-100">
+                      <input placeholder="Skills (comma separated)" value={getVal('requiredSkills', selectedWU.requiredSkills)?.join?.(', ') || ''} onChange={e => stageChange('requiredSkills', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
+                        className="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-200 focus:border-slate-400 focus:ring-0 py-1 placeholder:text-slate-300" />
+                    </div>
+
+                    {/* ── Acceptance criteria ── */}
+                    {(selectedWU.acceptanceCriteria || []).length > 0 && (
+                      <div className="pt-2 border-t border-slate-100">
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Acceptance criteria</span>
+                        <ul className="mt-1.5 space-y-1">
+                          {(selectedWU.acceptanceCriteria || []).map((c: any, i: number) => (
+                            <li key={i} className="text-xs text-slate-700 flex items-start gap-1.5">
+                              <span className="text-slate-300 mt-px">•</span>{c.criterion}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* ── Spec ── */}
+                    <div className="pt-2 border-t border-slate-100">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Spec</span>
                         <button onClick={() => setPendingChanges(prev => ({ ...prev, _editingSpec: !prev._editingSpec }))} className="text-[10px] text-violet-500 hover:text-violet-700">
                           {pendingChanges._editingSpec ? 'preview' : 'edit'}
                         </button>
                       </div>
                       {pendingChanges._editingSpec ? (
                         <textarea value={getVal('spec', selectedWU.spec)} onChange={e => stageChange('spec', e.target.value)}
-                          className="w-full text-xs text-slate-700 bg-transparent border border-slate-100 rounded p-2 focus:ring-0 focus:border-slate-300 resize-none mt-0.5" rows={8} />
+                          className="w-full text-xs text-slate-700 bg-slate-50/50 border border-slate-200 rounded-md p-2 focus:ring-1 focus:ring-violet-200 focus:border-violet-300 resize-none" rows={8} />
                       ) : (
-                        <div className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed mt-0.5 max-h-60 overflow-y-auto">
+                        <div className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
                           {formatText(getVal('spec', selectedWU.spec) || '')}
                         </div>
                       )}
                     </div>
 
-                    {/* Action buttons */}
-                    <div className="flex gap-2 pt-2 border-t border-slate-100">
+                    {/* ── Actions ── */}
+                    <div className="flex gap-2 pt-3 border-t border-slate-100">
                       {selectedWU.status === 'active' && (
                         <button onClick={() => stageChange('status', 'paused')}
-                          className="flex-1 py-1.5 text-xs text-amber-700 border border-amber-200 rounded hover:bg-amber-50 transition-colors">
+                          className="flex-1 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-md hover:bg-amber-100 transition-colors">
                           Pause
                         </button>
                       )}
                       {selectedWU.status === 'paused' && (
                         <button onClick={() => stageChange('status', 'active')}
-                          className="flex-1 py-1.5 text-xs text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-50 transition-colors">
-                          Unpause
+                          className="flex-1 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 transition-colors">
+                          Resume
                         </button>
                       )}
                       {selectedWU.status === 'draft' && (
                         <button onClick={fundAndPublish}
-                          className="flex-1 py-1.5 text-xs text-white bg-gradient-to-r from-violet-600 to-indigo-600 rounded hover:from-violet-700 hover:to-indigo-700 transition-all">
+                          className="flex-1 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-violet-600 to-indigo-600 rounded-md hover:from-violet-700 hover:to-indigo-700 shadow-sm transition-all">
                           Publish
                         </button>
                       )}
@@ -988,7 +992,7 @@ export default function DashboardPage() {
                         setSelectedWU(null);
                         loadPanel();
                       }}
-                        className="py-1.5 px-3 text-xs text-red-400 border border-red-200 rounded hover:bg-red-50 transition-colors">
+                        className="py-1.5 px-3 text-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors">
                         Delete
                       </button>
                     </div>
@@ -997,71 +1001,103 @@ export default function DashboardPage() {
 
                 {/* Execution */}
                 {panelTab === 'execution' && (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
+                    {/* Interview selector */}
                     <div>
-                      <span className="text-slate-500 text-xs block mb-1">Interview</span>
                       <select value={selectedWU.infoCollectionTemplateId || ''} onChange={e => {
                         const v = e.target.value || null;
                         stageChange('infoCollectionTemplateId', v);
                         if (v) loadInterview(v); else setInterviewDetail(null);
-                      }} className="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-100 focus:border-slate-400 focus:ring-0 py-1">
-                        <option value="">None</option>
+                      }} className="w-full text-xs text-slate-700 bg-slate-50/80 border border-slate-200 rounded-md focus:border-violet-300 focus:ring-1 focus:ring-violet-200 py-1.5 px-2">
+                        <option value="">No screening interview</option>
                         {(sideData.templates || []).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
                       </select>
                     </div>
 
                     {interviewDetail && (
-                      <div className="space-y-2 pt-2 border-t border-slate-100">
-                        <p className="text-xs text-slate-700">{interviewDetail.name} · {interviewDetail.timeLimitMinutes}min · {interviewDetail.mode}</p>
-                        <p className="text-xs text-slate-500">{interviewDetail.questions?.length || 0} questions · voice {interviewDetail.enableVoiceOutput ? 'on' : 'off'}</p>
+                      <div className="rounded-lg bg-slate-50/80 p-3 space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-slate-700">
+                          <span className="font-medium">{interviewDetail.name}</span>
+                          <span className="text-slate-300">·</span>
+                          <span className="text-slate-500">{interviewDetail.timeLimitMinutes}min</span>
+                          <span className="text-slate-300">·</span>
+                          <span className="text-slate-500">{interviewDetail.questions?.length || 0}q</span>
+                        </div>
                         {(interviewDetail.links || []).filter((l: any) => l.isActive).slice(0, 3).map((l: any) => (
-                          <div key={l.id} className="flex items-center gap-1">
-                            <p className="text-slate-500 truncate text-[10px] flex-1">/interview/{l.token}</p>
-                            <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/interview/${l.token}`); }} className="text-[10px] text-violet-500 hover:text-violet-700 flex-shrink-0">copy</button>
+                          <div key={l.id} className="flex items-center gap-1.5 bg-white rounded px-2 py-1">
+                            <code className="text-[10px] text-slate-500 truncate flex-1">/interview/{l.token}</code>
+                            <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/interview/${l.token}`); }} className="text-[10px] text-violet-500 hover:text-violet-700 font-medium flex-shrink-0">copy</button>
                           </div>
                         ))}
-                        <button onClick={generateLink} className="text-slate-400 hover:text-slate-700">+ link</button>
+                        <button onClick={generateLink} className="text-[11px] text-slate-400 hover:text-violet-600 transition-colors">+ new link</button>
                       </div>
                     )}
 
-                    <div>
-                      <span className="text-slate-500 text-xs block mb-1">Applicants & Executions</span>
-                      {selectedWU.executions?.length > 0 ? selectedWU.executions.map((e: any) => (
-                        <div key={e.id} className="py-2 border-b border-slate-100 last:border-0">
-                          <p className="text-xs text-slate-800 font-medium">{e.student?.name || '?'} <span className="font-normal text-slate-500">— {e.status}</span></p>
-                          {e.deadlineAt && <p className="text-xs text-slate-500 mt-0.5">deadline {new Date(e.deadlineAt).toLocaleDateString()}</p>}
-                          {e.qualityScore != null && <p className="text-xs text-slate-500">quality {e.qualityScore}%</p>}
-                          <div className="flex gap-2 mt-1">
-                            {e.status === 'pending_review' && <>
-                              <button onClick={() => approveApp(e.id)} className="text-xs text-emerald-600 hover:text-emerald-800">assign</button>
-                              <button onClick={() => reviewExec(e.id, 'failed')} className="text-xs text-red-400 hover:text-red-600">reject</button>
-                            </>}
-                            {e.status === 'submitted' && <>
-                              <button onClick={() => reviewExec(e.id, 'approved')} className="text-xs text-emerald-600 hover:text-emerald-800">approve</button>
-                              <button onClick={() => reviewExec(e.id, 'revision_needed')} className="text-xs text-amber-600 hover:text-amber-800">revise</button>
-                              <button onClick={() => reviewExec(e.id, 'failed')} className="text-xs text-red-400 hover:text-red-600">reject</button>
-                            </>}
-                            {['assigned', 'clocked_in'].includes(e.status) && (
-                              <button onClick={() => reviewExec(e.id, 'failed')} className="text-xs text-red-400 hover:text-red-600">cancel</button>
-                            )}
+                    {/* Applicants list */}
+                    <div className="pt-1">
+                      {selectedWU.executions?.length > 0 ? selectedWU.executions.map((e: any) => {
+                        const statusColor: Record<string, string> = {
+                          pending_review: 'bg-blue-50 text-blue-600', pending_screening: 'bg-blue-50 text-blue-600',
+                          assigned: 'bg-slate-100 text-slate-600', clocked_in: 'bg-emerald-50 text-emerald-600',
+                          submitted: 'bg-violet-50 text-violet-600', approved: 'bg-emerald-50 text-emerald-700',
+                          revision_needed: 'bg-amber-50 text-amber-600', failed: 'bg-red-50 text-red-500', cancelled: 'bg-slate-100 text-slate-400',
+                        };
+                        return (
+                          <div key={e.id} className="py-2.5 border-b border-slate-100 last:border-0 flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-slate-800 truncate">{e.student?.name || 'Unknown'}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusColor[e.status] || 'bg-slate-100 text-slate-500'}`}>{e.status.replace(/_/g, ' ')}</span>
+                                {e.qualityScore != null && <span className="text-[10px] text-slate-400">{e.qualityScore}%</span>}
+                              </div>
+                            </div>
+                            <div className="flex gap-1 flex-shrink-0">
+                              {e.status === 'pending_review' && <>
+                                <button onClick={() => approveApp(e.id)} className="text-[10px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-medium">assign</button>
+                                <button onClick={() => reviewExec(e.id, 'failed')} className="text-[10px] px-2 py-0.5 rounded bg-red-50 text-red-400 hover:bg-red-100 font-medium">reject</button>
+                              </>}
+                              {e.status === 'submitted' && <>
+                                <button onClick={() => reviewExec(e.id, 'approved')} className="text-[10px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-medium">approve</button>
+                                <button onClick={() => reviewExec(e.id, 'revision_needed')} className="text-[10px] px-2 py-0.5 rounded bg-amber-50 text-amber-600 hover:bg-amber-100 font-medium">revise</button>
+                                <button onClick={() => reviewExec(e.id, 'failed')} className="text-[10px] px-2 py-0.5 rounded bg-red-50 text-red-400 hover:bg-red-100 font-medium">reject</button>
+                              </>}
+                              {['assigned', 'clocked_in'].includes(e.status) && (
+                                <button onClick={() => reviewExec(e.id, 'failed')} className="text-[10px] px-2 py-0.5 rounded bg-red-50 text-red-400 hover:bg-red-100 font-medium">cancel</button>
+                              )}
+                            </div>
                           </div>
+                        );
+                      }) : (
+                        <div className="text-center py-6">
+                          <p className="text-xs text-slate-400">No applicants yet</p>
                         </div>
-                      )) : <p className="text-slate-400">None yet</p>}
+                      )}
                     </div>
-
                   </div>
                 )}
 
                 {/* Financial */}
                 {panelTab === 'financial' && (
                   <div className="space-y-4">
-                    <div className="flex justify-between items-center"><span className="text-slate-500">Price</span><span className="text-slate-900 font-medium">${(selectedWU.priceInCents / 100).toFixed(2)}</span></div>
+                    {selectedWU.escrow ? (
+                      <div className="rounded-lg bg-slate-50/80 p-3 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-slate-500">Escrow</span>
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${selectedWU.escrow.status === 'funded' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{selectedWU.escrow.status}</span>
+                        </div>
+                        <div className="flex justify-between text-xs"><span className="text-slate-500">Total</span><span className="text-slate-900 font-medium">${(selectedWU.priceInCents / 100).toFixed(2)}</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-slate-500">Fee ({Math.round((selectedWU.platformFeePercent || 0.15) * 100)}%)</span><span className="text-slate-600">${(selectedWU.escrow.platformFeeInCents / 100).toFixed(2)}</span></div>
+                        <div className="flex justify-between text-xs border-t border-slate-200 pt-2"><span className="text-slate-500">Contractor payout</span><span className="text-slate-900 font-medium">${(selectedWU.escrow.netAmountInCents / 100).toFixed(2)}</span></div>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg bg-slate-50/80 p-3 text-center">
+                        <p className="text-xs text-slate-400">No escrow created yet</p>
+                        <p className="text-[10px] text-slate-300 mt-0.5">Publish to fund escrow</p>
+                      </div>
+                    )}
                     {selectedWU.escrow && <>
-                      <div className="flex justify-between items-center"><span className="text-slate-500">Escrow</span><span className={`font-medium ${selectedWU.escrow.status === 'funded' ? 'text-emerald-600' : 'text-amber-600'}`}>{selectedWU.escrow.status}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-slate-500">Platform fee</span><span className="text-slate-700">${(selectedWU.escrow.platformFeeInCents / 100).toFixed(2)}</span></div>
-                      <div className="flex justify-between items-center"><span className="text-slate-500">Contractor receives</span><span className="text-slate-700">${(selectedWU.escrow.netAmountInCents / 100).toFixed(2)}</span></div>
                       {selectedWU.escrow.status === 'pending' && (
-                        <button onClick={fundAndPublish} className="w-full mt-2 py-1.5 text-xs text-white bg-gradient-to-r from-violet-600 to-indigo-600 rounded hover:from-violet-700 hover:to-indigo-700 transition-all">Fund & Publish</button>
+                        <button onClick={fundAndPublish} className="w-full py-1.5 text-xs font-medium text-white bg-gradient-to-r from-violet-600 to-indigo-600 rounded-md hover:from-violet-700 hover:to-indigo-700 shadow-sm transition-all">Fund & Publish</button>
                       )}
                     </>}
                     {sideData.billing && (
