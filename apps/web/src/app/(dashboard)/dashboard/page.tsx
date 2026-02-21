@@ -873,7 +873,7 @@ export default function DashboardPage() {
                     {/* Progress & SLA summary */}
                     {(() => {
                       const execs = selectedWU.executions || [];
-                      const total = execs.length;
+                      const deliverableCount = (selectedWU as any).deliverableCount || Math.max(execs.length, 1);
                       const completed = execs.filter((e: any) => e.status === 'approved').length;
                       const submitted = execs.filter((e: any) => e.status === 'submitted').length;
                       const active = execs.filter((e: any) => ['assigned', 'clocked_in'].includes(e.status)).length;
@@ -882,7 +882,7 @@ export default function DashboardPage() {
                         .filter((e: any) => e.deadlineAt && ['assigned', 'clocked_in'].includes(e.status))
                         .sort((a: any, b: any) => new Date(a.deadlineAt).getTime() - new Date(b.deadlineAt).getTime())[0];
                       const hoursLeft = nearestDeadline ? Math.round((new Date(nearestDeadline.deadlineAt).getTime() - Date.now()) / 3600000) : null;
-                      const progress = total > 0 ? Math.round((completed / Math.max(total, 1)) * 100) : 0;
+                      const progress = deliverableCount > 0 ? Math.round((completed / deliverableCount) * 100) : 0;
 
                       return (
                         <div className="space-y-2.5 pb-3 border-b border-slate-100">
@@ -890,7 +890,7 @@ export default function DashboardPage() {
                           {total > 0 && (
                             <div>
                               <div className="flex justify-between text-[10px] text-slate-400 mb-1">
-                                <span>{completed}/{total} completed</span>
+                                <span>{completed}/{deliverableCount} deliverables completed</span>
                                 <span>{progress}%</span>
                               </div>
                               <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -904,7 +904,7 @@ export default function DashboardPage() {
                             {active > 0 && <span className="text-slate-600">{active} working</span>}
                             {submitted > 0 && <span className="text-slate-600">{submitted} awaiting review</span>}
                             {revisions > 0 && <span className="text-slate-600">{revisions} in revision</span>}
-                            {total === 0 && <span className="text-slate-400">No executions yet</span>}
+                            {execs.length === 0 && <span className="text-slate-400">No deliverables started</span>}
                           </div>
 
                           {/* Deadline */}
@@ -932,6 +932,7 @@ export default function DashboardPage() {
                     <SelectRow label="Assignment" value={getVal('assignmentMode', selectedWU.assignmentMode || 'auto')} options={['auto', 'manual']} onChange={v => stageChange('assignmentMode', v)} />
                     <Row label="Complexity" value={`${getVal('complexityScore', selectedWU.complexityScore)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('complexityScore', Math.max(1, Math.min(5, n))); }} />
                     <Row label="Revision limit" value={`${getVal('revisionLimit', selectedWU.revisionLimit)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('revisionLimit', Math.max(0, n)); }} />
+                    <Row label="Deliverables" value={`${getVal('deliverableCount', (selectedWU as any).deliverableCount || 1)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('deliverableCount', Math.max(1, n)); }} />
                     <div>
                       <span className="text-slate-500 text-xs">Skills</span>
                       <input value={getVal('requiredSkills', selectedWU.requiredSkills)?.join?.(', ') || ''} onChange={e => stageChange('requiredSkills', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}

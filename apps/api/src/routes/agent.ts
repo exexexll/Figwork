@@ -35,6 +35,8 @@ Step 2 — DECOMPOSITION: Break the goal into concrete deliverables. If it's a c
 
 Step 3 — SPEC DRAFTING: For each task, write a comprehensive spec covering: context, detailed requirements, format, quality standards, what "done" looks like, what to avoid, and examples if provided. Never write a one-sentence spec.
 
+IMPORTANT: Work units should be defined by DELIVERABLES, not by headcount. Each work unit = one discrete deliverable or module that gets paid on completion. If a project needs 20 creators each delivering 2 posts, that's 40 deliverable-based work units (or grouped by batch), NOT 20 people-based units. Think: "what gets submitted and paid for" = one work unit.
+
 Step 4 — REVIEW: Show the spec and ask: "Does this capture what you need? Anything to add or change?" Iterate until confirmed.
 
 Step 5 — SETUP: After confirmation, create work units, set acceptance criteria, add milestones, attach screening interview if complex, set up onboarding page with instructions and examples, estimate total cost, and suggest contractor tier.

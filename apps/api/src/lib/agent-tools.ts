@@ -1785,7 +1785,7 @@ async function toolPlanDecompose(args: any, companyId?: string): Promise<string>
     emitThinking('Breaking the project into individual work units...');
     emitThinking(`Reading brief: "${brief.projectName}" (${brief.projectType})`);
     const raw = await gpt52(
-      `You are a work architect. Break this project into tasks. For each, write a 1-paragraph spec. Return JSON: {"workUnits":[{"title":"...","spec":"(1 clear paragraph)","category":"...","requiredSkills":["..."],"deliverableFormat":["..."],"acceptanceCriteria":[{"criterion":"...","required":true}],"complexityScore":1-5,"minTier":"novice|pro|elite","deadlineHours":N,"revisionLimit":2,"assignmentMode":"auto"}]}`,
+      `You are a work architect. Break this project into DELIVERABLE-based work units. Each work unit = one discrete deliverable or module that gets submitted and paid on completion. Do NOT create work units per person — create them per deliverable batch or milestone. Example: "20 UGC posts" is 1 work unit with quantity 20, not 20 separate work units. For each, write a 1-paragraph spec. Return JSON: {"workUnits":[{"title":"...","spec":"(1 clear paragraph)","category":"...","requiredSkills":["..."],"deliverableFormat":["..."],"acceptanceCriteria":[{"criterion":"...","required":true}],"complexityScore":1-5,"minTier":"novice|pro|elite","deadlineHours":N,"revisionLimit":2,"assignmentMode":"auto","quantity":N}]}. The quantity field indicates how many discrete deliverables this work unit covers.`,
       JSON.stringify(brief),
       8192
     );
