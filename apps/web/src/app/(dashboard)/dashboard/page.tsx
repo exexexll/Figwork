@@ -431,12 +431,19 @@ export default function DashboardPage() {
   async function loadContracts() {
     try {
       const t = await getToken(); if (!t) return;
-      const wuId = selectedWU?.id;
-      const url = wuId ? `${API_URL}/api/agent/contracts?workUnitId=${wuId}` : `${API_URL}/api/agent/contracts`;
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${t}` } });
+      // Always load ALL contracts — filter client-side for the selected WU
+      const res = await fetch(`${API_URL}/api/agent/contracts`, { headers: { Authorization: `Bearer ${t}` } });
       if (res.ok) {
         const data = await res.json();
-        setContracts(data.contracts || []);
+        const all = data.contracts || [];
+        if (selectedWU) {
+          // Show contracts scoped to this WU (slug contains wu-{id prefix}) + unscoped contracts
+          const wuPrefix = `wu-${selectedWU.id.slice(0, 8)}`;
+          const filtered = all.filter((c: any) => c.slug?.startsWith(wuPrefix) || !c.slug?.startsWith('wu-'));
+          setContracts(filtered);
+        } else {
+          setContracts(all);
+        }
       }
     } catch {}
   }
@@ -787,7 +794,7 @@ export default function DashboardPage() {
           {selectedWU && (
             <div className="px-4 pt-2 flex gap-3 border-b border-slate-100 flex-shrink-0 overflow-x-auto">
               {['overview', 'execution', 'financial', 'legal', 'onboard'].map(tab => (
-                <button key={tab} onClick={() => setPanelTab(tab as any)}
+                <button key={tab} onClick={() => { setPanelTab(tab as any); if (tab === 'legal') loadContracts(); }}
                   className={`pb-2 text-xs capitalize whitespace-nowrap ${panelTab === tab ? 'text-slate-900 border-b-2 border-violet-400' : 'text-slate-400 hover:text-slate-600'}`}>
                   {tab}
                 </button>
