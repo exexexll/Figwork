@@ -197,9 +197,6 @@ export default function ExecutionOnboardPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-8">
-      <h1 className="text-xl font-semibold text-slate-900 mb-6">
-        {execution?.workUnit?.title || 'Task Onboarding'}
-      </h1>
 
       <div className="space-y-6">
         {/* Visual onboarding blocks from the business panel */}
