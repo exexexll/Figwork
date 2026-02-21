@@ -390,6 +390,7 @@ Return JSON: {
       await db.milestoneTemplate.deleteMany({ where: { workUnitId: id } });
       await db.defectAnalysis.deleteMany({ where: { workUnitId: id } });
       await db.agentConversation.deleteMany({ where: { workUnitId: id } });
+      await db.paymentTransaction.deleteMany({ where: { workUnitId: id } });
       if (workUnit.escrow) await db.escrow.delete({ where: { id: workUnit.escrow.id } });
 
       await db.workUnit.delete({ where: { id } });

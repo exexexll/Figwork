@@ -946,6 +946,7 @@ async function toolDeleteWorkUnit(args: any, companyId: string): Promise<string>
     await db.milestoneTemplate.deleteMany({ where: { workUnitId: wu.id } });
     await db.defectAnalysis.deleteMany({ where: { workUnitId: wu.id } });
     await db.agentConversation.deleteMany({ where: { workUnitId: wu.id } });
+    await db.paymentTransaction.deleteMany({ where: { workUnitId: wu.id } });
     if (wu.escrow) await db.escrow.delete({ where: { id: wu.escrow.id } });
   } catch (e: any) {
     return `Failed to clean up "${wu.title}": ${e.message?.slice(0, 100)}. Try again.`;
