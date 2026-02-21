@@ -373,16 +373,26 @@ Return JSON: {
         return notFound(reply, 'Work unit not found');
       }
 
-      if (workUnit.executions.length > 0) {
-        return badRequest(reply, 'Cannot delete work unit with executions');
+      // Block only if actively running executions
+      const activeExecs = workUnit.executions.filter((e: any) => ['assigned', 'clocked_in', 'submitted', 'revision_needed'].includes(e.status));
+      if (activeExecs.length > 0) {
+        return badRequest(reply, `Cannot delete — ${activeExecs.length} active execution(s). Cancel them first.`);
       }
 
-      if (workUnit.escrow) {
-        await db.escrow.delete({ where: { id: workUnit.escrow.id } });
+      // Clean up all related records
+      for (const exec of workUnit.executions) {
+        await db.proofOfWorkLog.deleteMany({ where: { executionId: exec.id } });
+        await db.revisionRequest.deleteMany({ where: { executionId: exec.id } });
+        await db.taskMilestone.deleteMany({ where: { executionId: exec.id } });
+        await db.dispute.deleteMany({ where: { executionId: exec.id } });
       }
+      await db.execution.deleteMany({ where: { workUnitId: id } });
+      await db.milestoneTemplate.deleteMany({ where: { workUnitId: id } });
+      await db.defectAnalysis.deleteMany({ where: { workUnitId: id } });
+      await db.agentConversation.deleteMany({ where: { workUnitId: id } });
+      if (workUnit.escrow) await db.escrow.delete({ where: { id: workUnit.escrow.id } });
 
       await db.workUnit.delete({ where: { id } });
-
       return reply.status(204).send();
     }
   );

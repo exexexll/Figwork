@@ -908,31 +908,56 @@ async function toolPublishWorkUnit(args: any, companyId: string): Promise<string
 async function toolDeleteWorkUnit(args: any, companyId: string): Promise<string> {
   const wu = await db.workUnit.findFirst({
     where: { id: args.workUnitId, companyId },
-    include: { executions: { where: { status: { notIn: ['failed', 'cancelled', 'approved'] } } }, escrow: true },
+    include: {
+      executions: true, // ALL executions, not filtered
+      escrow: true,
+    },
   });
   if (!wu) return 'Work unit not found.';
 
-  // If active/in_progress with no active executions, auto-cancel first
-  if (['active', 'paused', 'in_progress'].includes(wu.status)) {
-    if (wu.executions.length > 0) {
-      return `Cannot delete "${wu.title}" — it has ${wu.executions.length} active execution(s). Cancel them first.`;
-    }
-    await db.workUnit.update({ where: { id: wu.id }, data: { status: 'cancelled' } });
-    // Refund escrow on cancel
-    if (wu.escrow && ['pending', 'funded'].includes(wu.escrow.status)) {
-      await db.escrow.update({ where: { id: wu.escrow.id }, data: { status: 'refunded', releasedAt: new Date() } });
-    }
+  // Block if there are actively running executions (assigned, clocked_in, submitted)
+  const activeExecs = wu.executions.filter(e => ['assigned', 'clocked_in', 'submitted', 'revision_needed'].includes(e.status));
+  if (activeExecs.length > 0) {
+    return `Cannot delete "${wu.title}" — it has ${activeExecs.length} actively running execution(s). Cancel them first.`;
   }
 
-  // Delete related records
-  try {
-    if (wu.escrow) await db.escrow.delete({ where: { id: wu.escrow.id } });
-    await db.milestoneTemplate.deleteMany({ where: { workUnitId: wu.id } });
-    await db.agentConversation.deleteMany({ where: { workUnitId: wu.id } });
-  } catch {}
+  // Auto-cancel the work unit if not already cancelled/draft
+  if (!['cancelled', 'draft'].includes(wu.status)) {
+    await db.workUnit.update({ where: { id: wu.id }, data: { status: 'cancelled' } });
+  }
 
-  await db.workUnit.delete({ where: { id: wu.id } });
-  return `Deleted "${wu.title}".`;
+  // Refund escrow
+  if (wu.escrow && ['pending', 'funded'].includes(wu.escrow.status)) {
+    await db.escrow.update({ where: { id: wu.escrow.id }, data: { status: 'refunded', releasedAt: new Date() } });
+  }
+
+  // Delete ALL related records in order (respecting foreign keys)
+  try {
+    // Delete execution-related records first
+    for (const exec of wu.executions) {
+      await db.proofOfWorkLog.deleteMany({ where: { executionId: exec.id } });
+      await db.revisionRequest.deleteMany({ where: { executionId: exec.id } });
+      await db.taskMilestone.deleteMany({ where: { executionId: exec.id } });
+      await db.dispute.deleteMany({ where: { executionId: exec.id } });
+    }
+    // Delete executions
+    await db.execution.deleteMany({ where: { workUnitId: wu.id } });
+    // Delete other work unit children
+    await db.milestoneTemplate.deleteMany({ where: { workUnitId: wu.id } });
+    await db.defectAnalysis.deleteMany({ where: { workUnitId: wu.id } });
+    await db.agentConversation.deleteMany({ where: { workUnitId: wu.id } });
+    if (wu.escrow) await db.escrow.delete({ where: { id: wu.escrow.id } });
+  } catch (e: any) {
+    return `Failed to clean up "${wu.title}": ${e.message?.slice(0, 100)}. Try again.`;
+  }
+
+  // Now safe to delete the work unit
+  try {
+    await db.workUnit.delete({ where: { id: wu.id } });
+    return `Deleted "${wu.title}" and all related records.`;
+  } catch (e: any) {
+    return `Failed to delete "${wu.title}": ${e.message?.slice(0, 100)}`;
+  }
 }
 
 async function toolAddMilestones(args: any, companyId: string): Promise<string> {
