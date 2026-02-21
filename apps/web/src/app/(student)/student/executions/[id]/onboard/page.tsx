@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
@@ -7,6 +8,21 @@ import Link from 'next/link';
 import { ArrowRight, CheckCircle, FileText, ExternalLink, AlertCircle } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+function fmt(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let remaining = text;
+  let key = 0;
+  while (remaining.length > 0) {
+    const m = remaining.match(/\*\*(.+?)\*\*/);
+    if (!m) { parts.push(remaining); break; }
+    const idx = remaining.indexOf(m[0]);
+    if (idx > 0) parts.push(remaining.slice(0, idx));
+    parts.push(<strong key={key++}>{m[1]}</strong>);
+    remaining = remaining.slice(idx + m[0].length);
+  }
+  return parts;
+}
 
 interface OnboardingData {
   welcome: string;
@@ -154,7 +170,7 @@ export default function ExecutionOnboardPage() {
         {/* Welcome message */}
         {onboarding?.welcome && (
           <div className="bg-slate-50 rounded-lg p-5">
-            <p className="text-sm text-slate-700">{onboarding.welcome}</p>
+            <p className="text-sm text-slate-700">{fmt(onboarding.welcome)}</p>
           </div>
         )}
 
@@ -191,7 +207,7 @@ export default function ExecutionOnboardPage() {
         {onboarding?.instructions && (
           <div>
             <h2 className="text-sm font-medium text-slate-900 mb-2">Instructions</h2>
-            <p className="text-sm text-slate-600 whitespace-pre-wrap">{onboarding.instructions}</p>
+            <p className="text-sm text-slate-600 whitespace-pre-wrap">{fmt(onboarding.instructions)}</p>
           </div>
         )}
 

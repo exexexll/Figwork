@@ -1361,15 +1361,15 @@ function PanelBlockPreview({ block, accentColor, companyName }: { block: { id: s
     case 'hero':
       return (
         <div className="text-center py-1">
-          <p className="text-xs font-bold text-slate-800">{resolve(block.content.heading)}</p>
-          <p className="text-[10px] text-slate-500 mt-0.5">{resolve(block.content.subheading)}</p>
+          <p className="text-xs font-bold text-slate-800">{formatText(resolve(block.content.heading))}</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">{formatText(resolve(block.content.subheading))}</p>
         </div>
       );
     case 'text':
       return (
         <div>
-          {block.content.heading && <p className="text-xs font-semibold text-slate-800 mb-0.5">{block.content.heading}</p>}
-          <p className="text-[11px] text-slate-600 whitespace-pre-wrap leading-relaxed">{block.content.body}</p>
+          {block.content.heading && <p className="text-xs font-semibold text-slate-800 mb-0.5">{formatText(block.content.heading)}</p>}
+          <p className="text-[11px] text-slate-600 whitespace-pre-wrap leading-relaxed">{formatText(block.content.body)}</p>
         </div>
       );
     case 'image':
@@ -1384,7 +1384,7 @@ function PanelBlockPreview({ block, accentColor, companyName }: { block: { id: s
     case 'checklist':
       return (
         <div>
-          {block.content.heading && <p className="text-xs font-semibold text-slate-800 mb-1">{block.content.heading}</p>}
+          {block.content.heading && <p className="text-xs font-semibold text-slate-800 mb-1">{formatText(block.content.heading)}</p>}
           <ul className="space-y-0.5">
             {(block.content.items || []).map((item: string, i: number) => (
               <li key={i} className="flex items-start gap-1.5 text-[11px] text-slate-600">
@@ -1398,8 +1398,8 @@ function PanelBlockPreview({ block, accentColor, companyName }: { block: { id: s
     case 'cta':
       return (
         <div className="text-center py-1.5 px-2 rounded" style={{ backgroundColor: `${accentColor}15` }}>
-          <p className="text-xs font-semibold text-slate-800">{block.content.heading}</p>
-          <p className="text-[10px] text-slate-500 mt-0.5">{block.content.body}</p>
+          <p className="text-xs font-semibold text-slate-800">{formatText(block.content.heading)}</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">{formatText(block.content.body)}</p>
           <span className="inline-block mt-1 px-3 py-1 rounded text-white text-[10px] font-medium" style={{ backgroundColor: accentColor }}>
             {block.content.buttonText || 'Continue'}
           </span>
