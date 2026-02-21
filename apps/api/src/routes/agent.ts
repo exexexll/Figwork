@@ -681,7 +681,7 @@ export default async function agentRoutes(fastify: FastifyInstance) {
 
     const wu = await db.workUnit.findUnique({
       where: { id: workUnitId },
-      select: { companyId: true, deliverableFormat: true },
+      select: { companyId: true, deliverableFormat: true, spec: true, title: true, acceptanceCriteria: true },
     });
     if (!wu) return reply.status(404).send({ error: 'Not found' });
 
@@ -696,6 +696,9 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     const blocks = page.blocks || addr.onboardingPage?.blocks || [];
 
     return reply.send({
+      title: wu.title || '',
+      spec: wu.spec || '',
+      acceptanceCriteria: wu.acceptanceCriteria || [],
       welcome: page.welcome || '',
       instructions: page.instructions || '',
       checklist: page.checklist || [],
