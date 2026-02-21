@@ -574,6 +574,25 @@ export default function DashboardPage() {
               }
             } else if (ev.type === 'tool' && ev.status === 'done' && ev.result) {
               setMessages(prev => [...prev, { id: `t-${Date.now()}-${Math.random()}`, role: 'tool', content: null, toolName: ev.name, toolResult: ev.result }]);
+              // Live-update panel when agent modifies work unit data
+              if (ev.name === 'update_work_unit' && selectedWU) {
+                selectWU(selectedWU.id); // Refresh the WU detail
+              }
+              if (ev.name === 'set_onboarding' && selectedWU) {
+                loadOnboarding(selectedWU.id); // Refresh onboarding blocks
+                if (panelTab !== 'onboard') setPanelTab('onboard'); // Switch to onboard tab to show changes
+              }
+              if ((ev.name === 'create_contract' || ev.name === 'activate_contract' || ev.name === 'delete_contract') && selectedWU) {
+                loadContracts(); // Refresh contract list
+                if (panelTab !== 'legal') setPanelTab('legal');
+              }
+              if (ev.name === 'create_work_unit') {
+                loadPanel(); // Refresh work unit list
+              }
+              if (ev.name === 'publish_work_unit' || ev.name === 'fund_escrow') {
+                if (selectedWU) selectWU(selectedWU.id); // Refresh financial data
+                loadPanel();
+              }
             } else if (ev.type === 'suggestions') {
               setSuggestions(ev.items || []);
             } else if (ev.type === 'done') {
