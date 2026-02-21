@@ -78,14 +78,18 @@ export default function ExecutionOnboardPage() {
         }
       } catch {}
 
-      // Load active contracts
+      // Load active contracts — only those scoped to this work unit + unscoped ones
       try {
         const contractRes = await fetch(`${API_URL}/api/agent/contracts`, {
           headers: { Authorization: `Bearer ${t}` },
         });
         if (contractRes.ok) {
           const data = await contractRes.json();
-          setContracts((data.contracts || []).filter((c: any) => c.status === 'active'));
+          const wuPrefix = `wu-${execData.workUnitId.slice(0, 8)}`;
+          const filtered = (data.contracts || []).filter((c: any) =>
+            c.status === 'active' && (c.slug?.startsWith(wuPrefix) || !c.slug?.startsWith('wu-'))
+          );
+          setContracts(filtered);
         }
       } catch {}
 

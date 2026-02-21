@@ -81,7 +81,7 @@ export default function ExecutionDetailPage() {
       setExecution(execData);
 
       // Check if onboarding is needed (assigned status, hasn't been onboarded yet)
-      if (execData.status === 'assigned' && !onboardingChecked) {
+      if (['assigned', 'pending_review', 'pending_screening'].includes(execData.status) && !onboardingChecked) {
         try {
           const obRes = await fetch(`${API_URL}/api/agent/onboarding/${execData.workUnitId}`, {
             headers: { Authorization: `Bearer ${token}` },
