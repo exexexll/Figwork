@@ -32,18 +32,22 @@ function timeAgo(d: string): string {
 
 /** Parse markdown-style bold/italic into React elements */
 function formatText(text: string): React.ReactNode[] {
-  // Split on **bold** and *italic* patterns
+  if (!text) return [];
+
+  // Pre-process: strip markdown headers → bold text
+  let processed = text
+    .replace(/^#{1,3}\s+(.+)$/gm, '**$1**') // ### Header → **Header**
+    .replace(/^- /gm, '• ') // - bullet → • bullet
+    .replace(/^\d+\)\s+/gm, (m) => m); // keep numbered lists as-is
+
   const parts: React.ReactNode[] = [];
-  let remaining = text;
+  let remaining = processed;
   let key = 0;
 
   while (remaining.length > 0) {
-    // Match **bold** first (greedy but not across newlines)
     const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
-    // Match *italic* (single asterisk, not double)
     const italicMatch = remaining.match(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/);
 
-    // Find the earliest match
     const boldIdx = boldMatch ? remaining.indexOf(boldMatch[0]) : -1;
     const italicIdx = italicMatch ? remaining.indexOf(italicMatch[0]) : -1;
 
@@ -62,12 +66,8 @@ function formatText(text: string): React.ReactNode[] {
       break;
     }
 
-    // Add text before the match
-    if (earliest > 0) {
-      parts.push(remaining.slice(0, earliest));
-    }
+    if (earliest > 0) parts.push(remaining.slice(0, earliest));
 
-    // Add the styled element
     if (matchType === 'bold') {
       parts.push(<span key={key++} className="font-semibold text-slate-950">{matchObj[1]}</span>);
     } else {
