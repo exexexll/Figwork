@@ -393,9 +393,21 @@ export default function DashboardPage() {
   async function deleteContractDirect(id: string) {
     try {
       const t = await getToken(); if (!t) return;
-      await fetch(`${API_URL}/api/agent/contracts/${id}`, {
+      // First try to delete
+      let res = await fetch(`${API_URL}/api/agent/contracts/${id}`, {
         method: 'DELETE', headers: { Authorization: `Bearer ${t}` },
       });
+      // If it's active, archive first then delete
+      if (res.status === 400) {
+        await fetch(`${API_URL}/api/agent/contracts/${id}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'archived' }),
+        });
+        res = await fetch(`${API_URL}/api/agent/contracts/${id}`, {
+          method: 'DELETE', headers: { Authorization: `Bearer ${t}` },
+        });
+      }
       setExpandedContract(null);
       loadContracts();
     } catch {}
@@ -1005,10 +1017,16 @@ export default function DashboardPage() {
                           <span className="text-slate-500 text-xs block mb-1.5">Contracts</span>
                           <p className="text-[11px] text-slate-400 mb-2">Click to view and edit. Activate for contractors to sign.</p>
                           {contracts.length > 0 ? contracts.map((c: any) => (
-                            <button key={c.id} onClick={() => loadContract(c.id)} className="w-full text-left py-2 border-b border-slate-100 last:border-0 hover:bg-white rounded transition-colors">
-                              <p className="text-xs text-slate-800">{c.title}</p>
-                              <p className="text-[11px] text-slate-500">v{c.version} · <span className={c.status === 'active' ? 'text-emerald-600' : c.status === 'draft' ? 'text-amber-600' : 'text-slate-400'}>{c.status}</span> · {c._count?.signatures || 0} signed</p>
-                            </button>
+                            <div key={c.id} className="flex items-center group py-2 border-b border-slate-100 last:border-0">
+                              <button onClick={() => loadContract(c.id)} className="flex-1 text-left hover:bg-white rounded transition-colors">
+                                <p className="text-xs text-slate-800">{c.title}</p>
+                                <p className="text-[11px] text-slate-500">v{c.version} · <span className={c.status === 'active' ? 'text-emerald-600' : c.status === 'draft' ? 'text-amber-600' : 'text-slate-400'}>{c.status}</span> · {c._count?.signatures || 0} signed</p>
+                              </button>
+                              <button onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${c.title}"?`)) deleteContractDirect(c.id); }}
+                                className="p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 flex-shrink-0">
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
                           )) : <p className="text-xs text-slate-400">No contracts yet</p>}
                         </div>
 

@@ -738,8 +738,9 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     if (!existing) return reply.status(404).send({ error: 'Contract not found' });
     if (existing.status === 'active') return reply.status(400).send({ error: 'Cannot delete active contract. Archive it first.' });
 
-    // Delete signatures first (cascade might not work)
+    // Delete all related records
     await db.agreementSignature.deleteMany({ where: { agreementId: id } });
+    try { await (db as any).onboardingStep.deleteMany({ where: { agreementId: id } }); } catch {}
     await db.legalAgreement.delete({ where: { id } });
     return reply.send({ success: true });
   });
