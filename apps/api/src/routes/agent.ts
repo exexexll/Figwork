@@ -8,7 +8,7 @@ import multipart from '@fastify/multipart';
 import { db } from '@figwork/db';
 import { getOpenAIClient } from '@figwork/ai';
 import { verifyClerkAuth } from '../lib/clerk.js';
-import { TOOL_DEFINITIONS, executeTool } from '../lib/agent-tools.js';
+import { TOOL_DEFINITIONS, executeTool, setStreamWriter } from '../lib/agent-tools.js';
 
 function buildSystemPrompt(company: any, context: any): string {
   const name = company.companyName || 'this company';
@@ -289,6 +289,11 @@ export default async function agentRoutes(fastify: FastifyInstance) {
     const openai = getOpenAIClient();
     let fullContent = '';
     let toolCallsAccumulated: any[] = [];
+
+    // Set stream writer so planning tools can emit thinking text
+    setStreamWriter((text: string) => {
+      try { reply.raw.write(`data: ${JSON.stringify({ type: 'thinking', content: text })}\n\n`); } catch {}
+    });
     const toolCallCounts = new Map<string, number>();
     const createdTitles = new Set<string>(); // Track created work unit titles to prevent duplicates
     let totalToolCalls = 0;
@@ -480,9 +485,11 @@ export default async function agentRoutes(fastify: FastifyInstance) {
         }
       } catch {}
 
+      setStreamWriter(null);
       reply.raw.write(`data: ${JSON.stringify({ type: 'done', conversationId: conversation.id })}\n\n`);
       reply.raw.end();
     } catch (err: any) {
+      setStreamWriter(null);
       console.error('[Agent] Error:', err?.message || err);
       try {
         reply.raw.write(`data: ${JSON.stringify({ type: 'error', message: err?.message?.slice(0, 200) || 'Agent error' })}\n\n`);

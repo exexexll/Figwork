@@ -379,6 +379,12 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'file_dispute', description: 'File a dispute against an execution', parameters: { type: 'object', properties: { executionId: { type: 'string' }, reason: { type: 'string' } }, required: ['executionId', 'reason'] } } },
 ];
 
+// Stream writer type for emitting thinking text during planning
+export type StreamWriter = (text: string) => void;
+let _streamWriter: StreamWriter | null = null;
+export function setStreamWriter(writer: StreamWriter | null) { _streamWriter = writer; }
+function emitThinking(text: string) { if (_streamWriter) _streamWriter(text); }
+
 // Tool executor — dispatches tool calls to the right function
 export async function executeTool(
   toolName: string,
@@ -1735,15 +1741,18 @@ async function toolPlanAnalyze(args: any, companyId?: string): Promise<string> {
   const cid = companyId || 'default';
   const { goal, budget, timeline } = args;
   try {
+    emitThinking('Analyzing the project goal and identifying constraints...');
     const raw = await gpt52(
       `You are a project analyst. Produce a project brief as JSON: {"projectName":"...","goal":"...","constraints":["..."],"qualityBar":"...","riskFactors":["..."],"estimatedTeamSize":N,"projectType":"campaign|hiring|content|research|development|operations"}`,
       `Goal: ${goal}\nBudget: ${budget || 'flexible'}\nTimeline: ${timeline || 'flexible'}`,
       2048
     );
     const brief = parseJSON(raw);
-    // Store server-side — next stage reads this directly
     planState.set(cid, { brief });
-    return `Analyzed: "${brief.projectName}" — ${brief.projectType}, team of ${brief.estimatedTeamSize}. Risks: ${(brief.riskFactors || []).join(', ')}. Call plan_decompose next.`;
+    emitThinking(`Project: "${brief.projectName}" — ${brief.projectType}, team size ~${brief.estimatedTeamSize}`);
+    if (brief.riskFactors?.length) emitThinking(`Risks identified: ${brief.riskFactors.join(', ')}`);
+    emitThinking('Analysis complete. Moving to task decomposition...');
+    return `Analyzed: "${brief.projectName}" — ${brief.projectType}, team of ${brief.estimatedTeamSize}. Call plan_decompose next.`;
   } catch (e: any) { return `Analysis failed: ${e.message?.slice(0, 100)}`; }
 }
 
@@ -1754,7 +1763,8 @@ async function toolPlanDecompose(args: any, companyId?: string): Promise<string>
   if (!brief) return 'No project brief found. Call plan_analyze first.';
 
   try {
-    // Single call: get tasks WITH specs in one shot — faster than 2-phase
+    emitThinking('Breaking the project into individual work units...');
+    emitThinking(`Reading brief: "${brief.projectName}" (${brief.projectType})`);
     const raw = await gpt52(
       `You are a work architect. Break this project into tasks. For each, write a 1-paragraph spec. Return JSON: {"workUnits":[{"title":"...","spec":"(1 clear paragraph)","category":"...","requiredSkills":["..."],"deliverableFormat":["..."],"acceptanceCriteria":[{"criterion":"...","required":true}],"complexityScore":1-5,"minTier":"novice|pro|elite","deadlineHours":N,"revisionLimit":2,"assignmentMode":"auto"}]}`,
       JSON.stringify(brief),
@@ -1764,6 +1774,12 @@ async function toolPlanDecompose(args: any, companyId?: string): Promise<string>
     if (workUnits.length === 0) return 'Could not identify tasks.';
 
     planState.set(cid, { ...state, workUnits });
+
+    emitThinking(`Identified ${workUnits.length} work units:`);
+    workUnits.forEach((wu: any, i: number) => {
+      emitThinking(`  ${i + 1}. ${wu.title} (${wu.category}, ${wu.minTier} tier, ${wu.deadlineHours}h)`);
+    });
+    emitThinking('Specs written. Moving to pricing...');
 
     const summary = workUnits.map((wu: any, i: number) => `${i + 1}. ${wu.title} — ${wu.category}, ${wu.minTier}, ${wu.deadlineHours}h`).join('\n');
     return `${workUnits.length} work units:\n${summary}\n\nCall plan_price next.`;
@@ -1777,7 +1793,7 @@ async function toolPlanPrice(args: any, companyId?: string): Promise<string> {
   if (!workUnits?.length) return 'No work units found. Call plan_decompose first.';
 
   try {
-    // Single call — price all at once
+    emitThinking(`Estimating market rates for ${workUnits.length} tasks...`);
     const taskList = workUnits.map((wu: any, i: number) => `${i + 1}. ${wu.title} — complexity ${wu.complexityScore || 3}, tier: ${wu.minTier || 'novice'}, ${wu.deadlineHours || 48}h`).join('\n');
     const raw = await gpt52(
       `Price each work unit in cents. Return JSON: {"estimates":[{"title":"...","priceInCents":N,"reasoning":"brief","estimatedHours":N}]}. Platform fee is 15%.`,
@@ -1792,6 +1808,11 @@ async function toolPlanPrice(args: any, companyId?: string): Promise<string> {
     workUnits.forEach((wu: any, i: number) => { if (estimates[i]) wu.priceInCents = estimates[i].priceInCents; });
     planState.set(cid, { ...state, workUnits, estimates: { estimates, totalSubtotalCents: subtotal, platformFeesCents: fees, totalCents: subtotal + fees } });
 
+    emitThinking(`Pricing complete:`);
+    estimates.forEach((e: any, i: number) => emitThinking(`  ${i + 1}. ${e.title} → $${((e.priceInCents || 0) / 100).toFixed(0)}`));
+    emitThinking(`Subtotal: $${(subtotal / 100).toFixed(0)} + $${(fees / 100).toFixed(0)} fees = $${((subtotal + fees) / 100).toFixed(0)} total`);
+    emitThinking('Moving to legal & onboarding...');
+
     const summary = estimates.map((e: any, i: number) => `${i + 1}. ${e.title} — $${((e.priceInCents || 0) / 100).toFixed(0)}`).join('\n');
     return `${estimates.length} tasks priced:\n${summary}\nTotal: $${((subtotal + fees) / 100).toFixed(0)} (incl. fees)\n\nCall plan_legal next.`;
   } catch (e: any) { return `Pricing failed: ${e.message?.slice(0, 100)}`; }
@@ -1805,6 +1826,8 @@ async function toolPlanLegal(args: any, companyId?: string): Promise<string> {
   if (!workUnits?.length) return 'No work units found. Run the earlier stages first.';
 
   try {
+    emitThinking('Drafting master contractor agreement...');
+    emitThinking('Designing onboarding page template...');
     const taskSummary = workUnits.map((wu: any) => wu.title).join(', ');
     const raw = await gpt52(
       `Write ONE master contractor agreement and ONE onboarding template. Return JSON: {"contract":{"title":"...","content":"Full enforceable agreement text"},"onboarding":{"blocks":[{"type":"hero","content":{"heading":"...","subheading":"..."}},{"type":"text","content":{"heading":"Instructions","body":"..."}},{"type":"checklist","content":{"heading":"Before You Start","items":["..."]}},{"type":"cta","content":{"heading":"Ready?","body":"...","buttonText":"Start Working"}}]}}`,
@@ -1814,6 +1837,9 @@ async function toolPlanLegal(args: any, companyId?: string): Promise<string> {
     const legal = parseJSON(raw);
     planState.set(cid, { ...state, legal });
 
+    emitThinking(`Contract: "${legal.contract?.title}" drafted`);
+    emitThinking(`Onboarding: ${legal.onboarding?.blocks?.length || 0} blocks designed`);
+    emitThinking('Planning complete. Ready for execution.');
     return `Legal package ready:\n- Contract: "${legal.contract?.title}"\n- Onboarding: ${legal.onboarding?.blocks?.length || 0} blocks\n\nPlan complete. Ready to create all ${workUnits.length} work units, contract, and onboarding pages. Ask the user to confirm.`;
   } catch (e: any) { return `Legal planning failed: ${e.message?.slice(0, 100)}`; }
 }

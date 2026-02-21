@@ -537,6 +537,9 @@ export default function DashboardPage() {
             const ev = JSON.parse(line.slice(6));
             if (ev.type === 'text') {
               setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: (m.content || '') + ev.content } : m));
+            } else if (ev.type === 'thinking') {
+              // Show chain-of-thought text as a thinking message
+              setMessages(prev => [...prev, { id: `think-${Date.now()}-${Math.random()}`, role: 'status', content: null, statusLabel: ev.content, statusPhase: 'done', toolName: 'thinking' }]);
             } else if (ev.type === 'tool_status') {
               const statusId = `status-${ev.name}-${Date.now()}`;
               if (ev.phase === 'start') {
