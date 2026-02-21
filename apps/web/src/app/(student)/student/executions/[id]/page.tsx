@@ -80,22 +80,10 @@ export default function ExecutionDetailPage() {
       ]);
       setExecution(execData);
 
-      // Check if onboarding is needed
-      if (['assigned', 'pending_review', 'pending_screening'].includes(execData.status) && !onboardingChecked) {
+      // Check if onboarding is needed — only redirect if NOT already completed
+      const onboardedKey = `onboarded_${executionId}`;
+      if (['assigned', 'pending_review', 'pending_screening'].includes(execData.status) && !onboardingChecked && !localStorage.getItem(onboardedKey)) {
         try {
-          // Check for unsigned contracts
-          const contractRes = await fetch(`${API_URL}/api/agent/contracts`, { headers: { Authorization: `Bearer ${token}` } });
-          let hasUnsignedContracts = false;
-          if (contractRes.ok) {
-            const cData = await contractRes.json();
-            const wuPrefix = `wu-${execData.workUnitId.slice(0, 8)}`;
-            const activeContracts = (cData.contracts || []).filter((c: any) =>
-              c.status === 'active' && (c.slug?.startsWith(wuPrefix) || !c.slug?.startsWith('wu-'))
-            );
-            // TODO: check which are already signed — for now assume unsigned if any active contracts exist
-            hasUnsignedContracts = activeContracts.length > 0;
-          }
-
           // Check for onboarding content
           const obRes = await fetch(`${API_URL}/api/agent/onboarding/${execData.workUnitId}`, { headers: { Authorization: `Bearer ${token}` } });
           let hasOnboarding = false;
@@ -104,9 +92,7 @@ export default function ExecutionDetailPage() {
             hasOnboarding = (obData.blocks?.length > 0) || !!obData.welcome || !!obData.instructions;
           }
 
-          // Show onboarding if there are unsigned contracts OR onboarding content not yet viewed
-          const onboardedKey = `onboarded_${executionId}`;
-          if (hasUnsignedContracts || (hasOnboarding && !localStorage.getItem(onboardedKey))) {
+          if (hasOnboarding) {
             router.replace(`/student/executions/${executionId}/onboard`);
             return;
           }

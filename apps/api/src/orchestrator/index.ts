@@ -612,13 +612,32 @@ export async function endInterviewSession(socket: any, sessionToken: string): Pr
 
     if (linkedExecution) {
       const isManual = (linkedExecution.workUnit as any).assignmentMode === 'manual';
-      const newStatus = isManual ? 'pending_review' : 'assigned';
+      let newStatus = isManual ? 'pending_review' : 'assigned';
+
+      // In auto mode with interview, evaluate the interview before auto-assigning
+      if (!isManual && completedSession.id) {
+        try {
+          const summary = await db.interviewSummary.findUnique({ where: { sessionId: completedSession.id } });
+          const rawData = summary?.rawSummary || summary?.rubricCoverage;
+          if (rawData) {
+            const summaryData = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+            const overallScore = summaryData.overall_score || summaryData.overallScore || summaryData.score || 0;
+            // Auto-reject if interview score is below 40%
+            if (overallScore > 0 && overallScore < 40) {
+              newStatus = 'failed';
+              console.log(`[Orchestrator] Auto-rejected execution ${linkedExecution.id} — interview score ${overallScore}%`);
+            }
+          }
+        } catch {
+          // If can't evaluate, proceed with auto-assign
+        }
+      }
 
       await db.execution.update({
         where: { id: linkedExecution.id },
         data: {
           status: newStatus,
-          infoSessionId: completedSession.id, // Update to point to actual session, not link
+          infoSessionId: completedSession.id,
         },
       });
 
