@@ -1725,18 +1725,35 @@ async function gpt52(systemPrompt: string, userPrompt: string, maxTokens: number
   const res = await openai.chat.completions.create({
     model: 'gpt-5.2',
     messages: [
-      { role: 'system', content: systemPrompt + '\nReturn ONLY valid JSON, no explanation.' },
+      { role: 'system', content: systemPrompt + '\nReturn ONLY valid JSON. No markdown, no explanation, no code fences.' },
       { role: 'user', content: userPrompt },
     ],
     max_completion_tokens: maxTokens,
     temperature: 0.2,
+    response_format: { type: 'json_object' },
   });
   return res.choices[0]?.message?.content || '';
 }
 
 function parseJSON(raw: string): any {
-  const match = raw.match(/\{[\s\S]*\}/);
-  return JSON.parse(match?.[0] || raw);
+  // Strip markdown code fences if present
+  let cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+  // Try direct parse first
+  try { return JSON.parse(cleaned); } catch {}
+  // Try extracting the outermost JSON object
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (match) {
+    try { return JSON.parse(match[0]); } catch {}
+    // Try finding the LAST complete JSON object (GPT sometimes outputs thinking then JSON)
+    const allMatches = cleaned.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+    if (allMatches) {
+      for (let i = allMatches.length - 1; i >= 0; i--) {
+        try { return JSON.parse(allMatches[i]); } catch {}
+      }
+    }
+  }
+  console.error('[parseJSON] Failed to parse:', cleaned.slice(0, 300));
+  return {};
 }
 
 async function toolPlanAnalyze(args: any, companyId?: string): Promise<string> {
@@ -1772,8 +1789,12 @@ async function toolPlanDecompose(args: any, companyId?: string): Promise<string>
       JSON.stringify(brief),
       8192
     );
-    const workUnits = parseJSON(raw).workUnits || [];
-    if (workUnits.length === 0) return 'Could not identify tasks.';
+    const parsed = parseJSON(raw);
+    const workUnits = parsed.workUnits || parsed.tasks || (Array.isArray(parsed) ? parsed : []);
+    if (workUnits.length === 0) {
+      emitThinking(`⚠ Parse result had no work units. Raw response starts with: ${raw.slice(0, 200)}`);
+      return `Decomposition produced no tasks. The model returned: ${raw.slice(0, 150)}...`;
+    }
 
     planState.set(cid, { ...state, workUnits });
 
