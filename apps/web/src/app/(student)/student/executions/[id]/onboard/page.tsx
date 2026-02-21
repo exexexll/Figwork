@@ -55,79 +55,10 @@ function fmt(text: string): React.ReactNode[] {
 }
 
 interface OnboardingData {
-  title?: string;
-  spec?: string;
-  acceptanceCriteria?: Array<{ criterion: string; required: boolean }>;
   welcome: string;
   instructions: string;
   checklist: string[];
   exampleWorkUrls: string[];
-}
-
-/** Render a markdown-ish spec into structured sections */
-function SpecRenderer({ spec }: { spec: string }) {
-  if (!spec) return null;
-
-  // Split on ## headings into sections
-  const sections: { heading: string; body: string }[] = [];
-  const lines = spec.split('\n');
-  let currentHeading = '';
-  let currentBody: string[] = [];
-
-  for (const line of lines) {
-    const headingMatch = line.match(/^#{1,3}\s+(.+)$/);
-    if (headingMatch) {
-      if (currentHeading || currentBody.length > 0) {
-        sections.push({ heading: currentHeading, body: currentBody.join('\n').trim() });
-      }
-      currentHeading = headingMatch[1];
-      currentBody = [];
-    } else {
-      currentBody.push(line);
-    }
-  }
-  if (currentHeading || currentBody.length > 0) {
-    sections.push({ heading: currentHeading, body: currentBody.join('\n').trim() });
-  }
-
-  // If no sections found, render as a single block
-  if (sections.length === 0) {
-    return <div className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">{fmt(spec)}</div>;
-  }
-
-  // Color-code certain sections
-  const getSectionStyle = (heading: string) => {
-    const h = heading.toLowerCase();
-    if (h.includes('safety') || h.includes('non-negotiable') || h.includes('auto-fail'))
-      return 'border-l-red-400 bg-red-50/50';
-    if (h.includes('privacy') || h.includes('recording'))
-      return 'border-l-amber-400 bg-amber-50/50';
-    if (h.includes('deliverable') || h.includes('submission') || h.includes('done'))
-      return 'border-l-emerald-400 bg-emerald-50/50';
-    if (h.includes('overview') || h.includes('goal') || h.includes('staffing'))
-      return 'border-l-violet-400 bg-violet-50/50';
-    return 'border-l-slate-300 bg-slate-50/50';
-  };
-
-  return (
-    <div className="space-y-3">
-      {sections.map((s, i) => (
-        <div key={i} className={`rounded-lg border-l-4 p-4 ${getSectionStyle(s.heading)}`}>
-          {s.heading && (
-            <h3 className="text-sm font-semibold text-slate-900 mb-2">{fmt(s.heading)}</h3>
-          )}
-          {s.body && (
-            <div className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed space-y-1">
-              {s.body.split('\n').map((line, j) => {
-                if (!line.trim()) return <div key={j} className="h-2" />;
-                return <div key={j}>{fmt(line)}</div>;
-              })}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
 }
 
 interface Contract {
@@ -272,28 +203,6 @@ export default function ExecutionOnboardPage() {
       <p className="text-sm text-slate-500 mb-8">Complete the following before you start working.</p>
 
       <div className="space-y-6">
-        {/* Task specification — the main briefing */}
-        {onboarding?.spec && (
-          <div>
-            <SpecRenderer spec={onboarding.spec} />
-          </div>
-        )}
-
-        {/* Acceptance criteria */}
-        {onboarding?.acceptanceCriteria && onboarding.acceptanceCriteria.length > 0 && (
-          <div className="rounded-lg border-l-4 border-l-blue-400 bg-blue-50/50 p-4">
-            <h3 className="text-sm font-semibold text-slate-900 mb-2">Acceptance Criteria</h3>
-            <ul className="space-y-1.5">
-              {onboarding.acceptanceCriteria.map((c, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-slate-600">
-                  <CheckCircle className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
-                  {fmt(c.criterion)}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
         {/* Visual onboarding blocks from the business panel */}
         {(onboarding as any)?.blocks?.length > 0 && (
           <div className="space-y-4">

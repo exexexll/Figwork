@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
@@ -25,6 +26,77 @@ import {
 } from 'lucide-react';
 import { getTaskDetail, acceptTask, TaskDetail } from '@/lib/marketplace-api';
 import { track, EVENTS } from '@/lib/analytics';
+
+/* ── Inline text formatter (bold, links, bullets) ── */
+function fmt(text: string): React.ReactNode[] {
+  if (!text) return [];
+  const parts: React.ReactNode[] = [];
+  let remaining = text
+    .replace(/^#{1,3}\s+(.+)$/gm, '**$1**')
+    .replace(/^- /gm, '• ');
+  let key = 0;
+  while (remaining.length > 0) {
+    const mdLink = remaining.match(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
+    const bold = remaining.match(/\*\*(.+?)\*\*/);
+    const url = remaining.match(/(?<!\]\()(?<!\()(https?:\/\/[^\s<>)\]]+)/);
+    const c: { idx: number; t: string; m: RegExpMatchArray }[] = [];
+    if (mdLink) c.push({ idx: remaining.indexOf(mdLink[0]), t: 'md', m: mdLink });
+    if (bold) c.push({ idx: remaining.indexOf(bold[0]), t: 'b', m: bold });
+    if (url) {
+      const ui = remaining.indexOf(url[0]);
+      const inside = mdLink && ui >= remaining.indexOf(mdLink[0]) && ui < remaining.indexOf(mdLink[0]) + mdLink[0].length;
+      if (!inside) c.push({ idx: ui, t: 'u', m: url });
+    }
+    c.sort((a, b) => a.idx - b.idx);
+    const w = c[0];
+    if (!w || w.idx === -1) { parts.push(remaining); break; }
+    if (w.idx > 0) parts.push(remaining.slice(0, w.idx));
+    if (w.t === 'md') parts.push(<a key={key++} href={w.m[2]} target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:text-violet-800 underline underline-offset-2">{w.m[1]}</a>);
+    else if (w.t === 'b') parts.push(<span key={key++} className="font-semibold text-slate-900">{w.m[1]}</span>);
+    else { const cl = w.m[0].replace(/[.,;:!?)]+$/, ''); const tail = w.m[0].slice(cl.length); let lbl = cl; try { const u = new URL(cl); lbl = u.hostname.replace(/^www\./, '') + (u.pathname !== '/' ? u.pathname : ''); } catch {} parts.push(<a key={key++} href={cl} target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:text-violet-800 underline underline-offset-2">{lbl}</a>); if (tail) parts.push(tail); }
+    remaining = remaining.slice(w.idx + w.m[0].length);
+  }
+  return parts;
+}
+
+/* ── Spec section renderer — splits ## headings into color-coded cards ── */
+function SpecRenderer({ spec }: { spec: string }) {
+  if (!spec) return null;
+  const sections: { heading: string; body: string }[] = [];
+  const lines = spec.split('\n');
+  let heading = ''; let body: string[] = [];
+  for (const line of lines) {
+    const hm = line.match(/^#{1,3}\s+(.+)$/);
+    if (hm) { if (heading || body.length) sections.push({ heading, body: body.join('\n').trim() }); heading = hm[1]; body = []; }
+    else body.push(line);
+  }
+  if (heading || body.length) sections.push({ heading, body: body.join('\n').trim() });
+  if (!sections.length) return <div className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">{fmt(spec)}</div>;
+
+  const style = (h: string) => {
+    const l = h.toLowerCase();
+    if (l.includes('safety') || l.includes('non-negotiable') || l.includes('auto-fail')) return 'border-l-red-400 bg-red-50/50';
+    if (l.includes('privacy') || l.includes('recording')) return 'border-l-amber-400 bg-amber-50/50';
+    if (l.includes('deliverable') || l.includes('submission') || l.includes('done')) return 'border-l-emerald-400 bg-emerald-50/50';
+    if (l.includes('overview') || l.includes('goal') || l.includes('staffing')) return 'border-l-violet-400 bg-violet-50/50';
+    return 'border-l-slate-300 bg-slate-50/50';
+  };
+
+  return (
+    <div className="space-y-3">
+      {sections.map((s, i) => (
+        <div key={i} className={`rounded-lg border-l-4 p-4 ${style(s.heading)}`}>
+          {s.heading && <h3 className="text-sm font-semibold text-slate-900 mb-2">{fmt(s.heading)}</h3>}
+          {s.body && (
+            <div className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed space-y-1">
+              {s.body.split('\n').map((ln, j) => !ln.trim() ? <div key={j} className="h-2" /> : <div key={j}>{fmt(ln)}</div>)}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const TIER_BADGE: Record<string, { label: string; className: string }> = {
   novice: { label: 'Novice+', className: 'bg-slate-100 text-slate-600' },
@@ -241,11 +313,11 @@ export default function TaskDetailPage() {
 
       {/* Specification */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
-        <h2 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
+        <h2 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
           <FileText className="w-4 h-4 text-slate-500" />
           Task Specification
         </h2>
-        <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{task.spec}</div>
+        <SpecRenderer spec={task.spec} />
       </div>
 
       {/* Skills */}
