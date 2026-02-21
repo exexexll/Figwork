@@ -171,8 +171,64 @@ export default function ExecutionOnboardPage() {
       <p className="text-sm text-slate-500 mb-8">Complete the following before you start working.</p>
 
       <div className="space-y-6">
-        {/* Welcome message */}
-        {onboarding?.welcome && (
+        {/* Visual onboarding blocks from the business panel */}
+        {(onboarding as any)?.blocks?.length > 0 && (
+          <div className="space-y-4">
+            {(onboarding as any).blocks.map((block: any, i: number) => (
+              <div key={block.id || i}>
+                {block.type === 'hero' && (
+                  <div className="text-center py-6">
+                    <h2 className="text-2xl font-bold text-slate-900 mb-2">{fmt(block.content?.heading || '')}</h2>
+                    <p className="text-slate-500">{fmt(block.content?.subheading || '')}</p>
+                  </div>
+                )}
+                {block.type === 'text' && (
+                  <div className="bg-white rounded-xl p-5 border border-slate-100">
+                    {block.content?.heading && <h3 className="text-lg font-semibold text-slate-900 mb-2">{fmt(block.content.heading)}</h3>}
+                    <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">{fmt(block.content?.body || '')}</p>
+                  </div>
+                )}
+                {block.type === 'checklist' && (
+                  <div className="bg-white rounded-xl p-5 border border-slate-100">
+                    {block.content?.heading && <h3 className="text-lg font-semibold text-slate-900 mb-3">{fmt(block.content.heading)}</h3>}
+                    <ul className="space-y-2">
+                      {(block.content?.items || []).map((item: string, j: number) => (
+                        <li key={j} className="flex items-start gap-2 text-sm text-slate-600">
+                          <CheckCircle className="w-4 h-4 text-violet-500 mt-0.5 flex-shrink-0" />
+                          {fmt(item)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {block.type === 'cta' && (
+                  <div className="rounded-xl p-6 text-center bg-violet-50">
+                    <h3 className="text-lg font-semibold text-slate-900 mb-1">{fmt(block.content?.heading || '')}</h3>
+                    <p className="text-sm text-slate-500">{fmt(block.content?.body || '')}</p>
+                  </div>
+                )}
+                {block.type === 'image' && block.content?.url && (
+                  <img src={block.content.url} alt={block.content.caption || ''} className="w-full rounded-xl" />
+                )}
+                {block.type === 'video' && block.content?.url && (
+                  <div className="rounded-xl overflow-hidden bg-slate-900 aspect-video flex items-center justify-center">
+                    <a href={block.content.url} target="_blank" rel="noopener noreferrer" className="text-white text-sm">▶ {block.content.title || 'Watch Video'}</a>
+                  </div>
+                )}
+                {block.type === 'file' && block.content?.url && (
+                  <a href={block.content.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg text-sm text-slate-700 hover:bg-slate-100">
+                    <FileText className="w-4 h-4" />
+                    {block.content.filename || 'Download file'}
+                  </a>
+                )}
+                {block.type === 'divider' && <hr className="border-slate-200" />}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Legacy welcome message (if no blocks) */}
+        {onboarding?.welcome && !(onboarding as any)?.blocks?.length && (
           <div className="bg-slate-50 rounded-lg p-5">
             <p className="text-sm text-slate-700">{fmt(onboarding.welcome)}</p>
           </div>
