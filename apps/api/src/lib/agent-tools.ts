@@ -1793,14 +1793,36 @@ async function toolPlanPrice(args: any, companyId?: string): Promise<string> {
   if (!workUnits?.length) return 'No work units found. Call plan_decompose first.';
 
   try {
-    emitThinking(`Estimating market rates for ${workUnits.length} tasks...`);
+    // Step 1: Web search for actual market rates
+    emitThinking(`Searching for current market rates...`);
+    let marketData = '';
+    try {
+      const searchQuery = workUnits[0]?.category
+        ? `freelance ${workUnits[0].category} hourly rate 2025`
+        : `freelance contractor rates 2025`;
+      marketData = await toolWebSearch({ query: searchQuery });
+      emitThinking(`Found market data: ${marketData.slice(0, 150)}...`);
+    } catch { emitThinking('Market search unavailable, using built-in rates.'); }
+
+    // Step 2: Price with market context
+    emitThinking(`Pricing ${workUnits.length} tasks with market data...`);
     const taskList = workUnits.map((wu: any, i: number) => `${i + 1}. ${wu.title} — complexity ${wu.complexityScore || 3}, tier: ${wu.minTier || 'novice'}, ${wu.deadlineHours || 48}h`).join('\n');
     const raw = await gpt52(
-      `Price each work unit in cents. Return JSON: {"estimates":[{"title":"...","priceInCents":N,"reasoning":"brief","estimatedHours":N}]}. Platform fee is 15%.`,
+      `You are a pricing expert. Price each work unit in US cents using REALISTIC freelance market rates. Use these references:\n${marketData.slice(0, 1000)}\n\nIMPORTANT: UGC content typically costs $50-$250 per post. Freelance project management costs $30-$75/hr. Do NOT inflate prices. Return JSON: {"estimates":[{"title":"...","priceInCents":N,"reasoning":"based on market rate of $X/hr × Y hours","estimatedHours":N}]}. Platform fee is 15%.`,
       taskList,
       4096
     );
     const estimates = parseJSON(raw).estimates || [];
+
+    // Sanity check: cap individual task prices at $10,000 unless elite tier
+    estimates.forEach((e: any, i: number) => {
+      const tier = workUnits[i]?.minTier || 'novice';
+      const maxCents = tier === 'elite' ? 2000000 : tier === 'pro' ? 1000000 : 500000; // $20K / $10K / $5K
+      if (e.priceInCents > maxCents) {
+        emitThinking(`  ⚠ ${e.title} was $${(e.priceInCents / 100).toFixed(0)}, capped to $${(maxCents / 100).toFixed(0)}`);
+        e.priceInCents = maxCents;
+      }
+    });
 
     const subtotal = estimates.reduce((s: number, e: any) => s + (e.priceInCents || 0), 0);
     const fees = Math.round(subtotal * 0.15);
