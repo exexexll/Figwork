@@ -77,6 +77,7 @@ export const TOOL_DEFINITIONS = [
           assignmentMode: { type: 'string', enum: ['auto', 'manual'], description: 'auto = system assigns best match, manual = you pick from candidates' },
           exampleUrls: { type: 'array', items: { type: 'string' }, description: 'URLs to example deliverables' },
           interviewTemplateId: { type: 'string', description: 'ID of screening interview template to attach' },
+          deliverableCount: { type: 'number', description: 'How many deliverables this work unit covers (default 1)' },
         },
         required: ['title', 'spec', 'category', 'priceInCents', 'deadlineHours'],
       },
@@ -532,6 +533,7 @@ async function toolCreateWorkUnit(args: any, companyId: string): Promise<string>
       minTier: args.minTier || 'novice',
       complexityScore: args.complexityScore || 1,
       revisionLimit: args.revisionLimit || 2,
+      deliverableCount: args.deliverableCount || args.quantity || 1,
       status: 'draft',
       assignmentMode: args.assignmentMode || 'auto',
       hasExamples: !!(args.exampleUrls?.length),
@@ -567,7 +569,7 @@ async function toolUpdateWorkUnit(args: any, companyId: string): Promise<string>
   const data: any = {};
   const fields = [
     'title', 'spec', 'category', 'status', 'priceInCents', 'deadlineHours',
-    'minTier', 'complexityScore', 'revisionLimit', 'assignmentMode',
+    'minTier', 'complexityScore', 'revisionLimit', 'deliverableCount', 'assignmentMode',
     'preferredHistory', 'maxRevisionTendency',
   ];
   for (const f of fields) {
@@ -585,13 +587,14 @@ async function toolUpdateWorkUnit(args: any, companyId: string): Promise<string>
 
   const updated = await db.workUnit.update({ where: { id: workUnitId }, data });
 
-  // Sync escrow on price change
-  if (data.priceInCents) {
+  // Sync escrow on price or deliverable count change
+  if (data.priceInCents || data.deliverableCount) {
+    const price = updated.priceInCents;
     const feePercent = updated.platformFeePercent || 0.15;
-    const fee = Math.round(data.priceInCents * feePercent);
+    const fee = Math.round(price * feePercent);
     await db.escrow.updateMany({
       where: { workUnitId },
-      data: { amountInCents: data.priceInCents, platformFeeInCents: fee, netAmountInCents: data.priceInCents - fee },
+      data: { amountInCents: price, platformFeeInCents: fee, netAmountInCents: price - fee },
     });
   }
 
@@ -1938,6 +1941,7 @@ async function toolPlanExecute(companyId: string): Promise<string> {
             revisionLimit: wu.revisionLimit || 2,
             status: 'draft',
             assignmentMode: wu.assignmentMode || 'auto',
+            deliverableCount: wu.deliverableCount || wu.quantity || 1,
             hasExamples: false,
             exampleUrls: [],
             preferredHistory: 0,

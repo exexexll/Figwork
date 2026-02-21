@@ -402,6 +402,7 @@ model WorkUnit {
   // SLA
   deadlineHours         Int       @map("deadline_hours")
   revisionLimit         Int       @default(2) @map("revision_limit")
+  deliverableCount      Int       @default(1) @map("deliverable_count") // How many deliverables this work unit covers
 
   // Pricing
   priceInCents          Int       @map("price_in_cents")

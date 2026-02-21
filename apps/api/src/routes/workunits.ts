@@ -38,6 +38,7 @@ interface UpdateWorkUnitBody {
   deliverableFormat?: string[];
   requiredSkills?: string[];
   revisionLimit?: number;
+  deliverableCount?: number;
   complexityScore?: number;
   minTier?: 'novice' | 'pro' | 'elite';
   assignmentMode?: 'auto' | 'manual';

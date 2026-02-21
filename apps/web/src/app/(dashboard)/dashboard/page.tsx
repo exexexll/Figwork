@@ -873,7 +873,7 @@ export default function DashboardPage() {
                     {/* Progress & SLA summary */}
                     {(() => {
                       const execs = selectedWU.executions || [];
-                      const deliverableCount = (selectedWU as any).deliverableCount || Math.max(execs.length, 1);
+                      const deliverableCount = selectedWU.deliverableCount || Math.max(execs.length, 1);
                       const completed = execs.filter((e: any) => e.status === 'approved').length;
                       const submitted = execs.filter((e: any) => e.status === 'submitted').length;
                       const active = execs.filter((e: any) => ['assigned', 'clocked_in'].includes(e.status)).length;
@@ -932,7 +932,7 @@ export default function DashboardPage() {
                     <SelectRow label="Assignment" value={getVal('assignmentMode', selectedWU.assignmentMode || 'auto')} options={['auto', 'manual']} onChange={v => stageChange('assignmentMode', v)} />
                     <Row label="Complexity" value={`${getVal('complexityScore', selectedWU.complexityScore)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('complexityScore', Math.max(1, Math.min(5, n))); }} />
                     <Row label="Revision limit" value={`${getVal('revisionLimit', selectedWU.revisionLimit)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('revisionLimit', Math.max(0, n)); }} />
-                    <Row label="Deliverables" value={`${getVal('deliverableCount', (selectedWU as any).deliverableCount || 1)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('deliverableCount', Math.max(1, n)); }} />
+                    <Row label="Deliverables" value={`${getVal('deliverableCount', selectedWU.deliverableCount || 1)}`} onChange={v => { if (v === '') return; const n = parseInt(v); if (!isNaN(n)) stageChange('deliverableCount', Math.max(1, n)); }} />
                     <div>
                       <span className="text-slate-500 text-xs">Skills</span>
                       <input value={getVal('requiredSkills', selectedWU.requiredSkills)?.join?.(', ') || ''} onChange={e => stageChange('requiredSkills', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
