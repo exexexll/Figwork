@@ -528,8 +528,9 @@ export default function DashboardPage() {
       ? `${text}\n${attachedFiles.map(f => `📎 ${f.name}`).join('\n')}${pastedImages.map(img => `🖼 ${img.name}`).join('\n')}`
       : text;
 
-    // Build the message payload — include images for GPT-4o vision
-    const imagePayloads = pastedImages.map(img => img.data);
+    // Build the message payload — include images for GPT-5.2 vision
+    // Filter out any oversized images (>500KB base64)
+    const imagePayloads = pastedImages.map(img => img.data).filter(d => d.length < 500000);
 
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: displayMsg };
     setMessages(prev => [...prev, userMsg]);
@@ -783,12 +784,23 @@ export default function DashboardPage() {
                     e.preventDefault();
                     const file = item.getAsFile();
                     if (!file) continue;
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      const base64 = reader.result as string;
-                      setPastedImages(prev => [...prev, { data: base64, name: `pasted-${Date.now()}.png` }]);
+                    // Compress image to max 800px and JPEG quality 0.7 to prevent oversized payloads
+                    const img = new window.Image();
+                    img.onload = () => {
+                      const canvas = document.createElement('canvas');
+                      const maxDim = 800;
+                      let w = img.width, h = img.height;
+                      if (w > maxDim || h > maxDim) {
+                        if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+                        else { w = Math.round(w * maxDim / h); h = maxDim; }
+                      }
+                      canvas.width = w; canvas.height = h;
+                      canvas.getContext('2d')?.drawImage(img, 0, 0, w, h);
+                      const compressed = canvas.toDataURL('image/jpeg', 0.7);
+                      setPastedImages(prev => [...prev, { data: compressed, name: `pasted-${Date.now()}.jpg` }]);
+                      URL.revokeObjectURL(img.src);
                     };
-                    reader.readAsDataURL(file);
+                    img.src = URL.createObjectURL(file);
                   }
                 }
               }}
