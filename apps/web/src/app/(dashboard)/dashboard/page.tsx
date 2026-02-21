@@ -121,6 +121,14 @@ export default function DashboardPage() {
   const resizing = useRef(false);
 
   useEffect(() => { loadConversations(); loadPanel(); }, []);
+  // Auto-refresh panel every 30s to catch new applicants
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadPanel();
+      if (selectedWU) selectWU(selectedWU.id);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [selectedWU]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   // ── Data loading ──
