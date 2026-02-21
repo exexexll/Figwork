@@ -887,7 +887,7 @@ export default function DashboardPage() {
                       return (
                         <div className="space-y-2.5 pb-3 border-b border-slate-100">
                           {/* Progress bar */}
-                          {total > 0 && (
+                          {execs.length > 0 && (
                             <div>
                               <div className="flex justify-between text-[10px] text-slate-400 mb-1">
                                 <span>{completed}/{deliverableCount} deliverables completed</span>
