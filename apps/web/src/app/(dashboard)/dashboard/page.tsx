@@ -34,47 +34,78 @@ function timeAgo(d: string): string {
 function formatText(text: string): React.ReactNode[] {
   if (!text) return [];
 
-  // Pre-process: strip markdown headers → bold text
+  // Pre-process: strip markdown headers → bold, bullets
   let processed = text
-    .replace(/^#{1,3}\s+(.+)$/gm, '**$1**') // ### Header → **Header**
-    .replace(/^- /gm, '• ') // - bullet → • bullet
-    .replace(/^\d+\)\s+/gm, (m) => m); // keep numbered lists as-is
+    .replace(/^#{1,3}\s+(.+)$/gm, '**$1**')
+    .replace(/^- /gm, '• ')
+    .replace(/^\d+\)\s+/gm, (m) => m);
 
   const parts: React.ReactNode[] = [];
   let remaining = processed;
   let key = 0;
 
+  // Inline patterns: markdown link, bold, italic, bare URL
   while (remaining.length > 0) {
+    const mdLinkMatch = remaining.match(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
     const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
     const italicMatch = remaining.match(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/);
+    const urlMatch = remaining.match(/(?<!\]\()(?<!\()(https?:\/\/[^\s<>)\]]+)/);
 
-    const boldIdx = boldMatch ? remaining.indexOf(boldMatch[0]) : -1;
-    const italicIdx = italicMatch ? remaining.indexOf(italicMatch[0]) : -1;
+    // Find earliest match
+    const candidates: { idx: number; type: string; match: RegExpMatchArray }[] = [];
+    if (mdLinkMatch) candidates.push({ idx: remaining.indexOf(mdLinkMatch[0]), type: 'mdlink', match: mdLinkMatch });
+    if (boldMatch) candidates.push({ idx: remaining.indexOf(boldMatch[0]), type: 'bold', match: boldMatch });
+    if (italicMatch) candidates.push({ idx: remaining.indexOf(italicMatch[0]), type: 'italic', match: italicMatch });
+    if (urlMatch) candidates.push({ idx: remaining.indexOf(urlMatch[0]), type: 'url', match: urlMatch });
 
-    let earliest = -1;
-    let matchType: 'bold' | 'italic' | null = null;
-    let matchObj: RegExpMatchArray | null = null;
+    // Filter out URL matches that are inside an mdLink match
+    const filtered = candidates.filter(c => {
+      if (c.type === 'url' && mdLinkMatch) {
+        const mdStart = remaining.indexOf(mdLinkMatch[0]);
+        const mdEnd = mdStart + mdLinkMatch[0].length;
+        return !(c.idx >= mdStart && c.idx < mdEnd);
+      }
+      return true;
+    });
 
-    if (boldIdx !== -1 && (italicIdx === -1 || boldIdx <= italicIdx)) {
-      earliest = boldIdx; matchType = 'bold'; matchObj = boldMatch;
-    } else if (italicIdx !== -1) {
-      earliest = italicIdx; matchType = 'italic'; matchObj = italicMatch;
-    }
+    filtered.sort((a, b) => a.idx - b.idx);
+    const winner = filtered[0];
 
-    if (earliest === -1 || !matchObj) {
+    if (!winner || winner.idx === -1) {
       parts.push(remaining);
       break;
     }
 
-    if (earliest > 0) parts.push(remaining.slice(0, earliest));
+    if (winner.idx > 0) parts.push(remaining.slice(0, winner.idx));
 
-    if (matchType === 'bold') {
-      parts.push(<span key={key++} className="font-semibold text-slate-950">{matchObj[1]}</span>);
-    } else {
-      parts.push(<span key={key++} className="italic text-slate-700">{matchObj[1]}</span>);
+    switch (winner.type) {
+      case 'mdlink': {
+        const label = winner.match[1];
+        const href = winner.match[2];
+        parts.push(<a key={key++} href={href} target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:text-violet-800 underline underline-offset-2">{label}</a>);
+        break;
+      }
+      case 'bold':
+        parts.push(<span key={key++} className="font-semibold text-slate-950">{winner.match[1]}</span>);
+        break;
+      case 'italic':
+        parts.push(<span key={key++} className="italic text-slate-700">{winner.match[1]}</span>);
+        break;
+      case 'url': {
+        const url = winner.match[0];
+        // Clean trailing punctuation
+        const clean = url.replace(/[.,;:!?)]+$/, '');
+        const tail = url.slice(clean.length);
+        // Show a friendly label: domain + path
+        let label = clean;
+        try { const u = new URL(clean); label = u.hostname.replace(/^www\./, '') + (u.pathname !== '/' ? u.pathname : ''); } catch {}
+        parts.push(<a key={key++} href={clean} target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:text-violet-800 underline underline-offset-2">{label}</a>);
+        if (tail) parts.push(tail);
+        break;
+      }
     }
 
-    remaining = remaining.slice(earliest + matchObj[0].length);
+    remaining = remaining.slice(winner.idx + winner.match[0].length);
   }
 
   return parts;

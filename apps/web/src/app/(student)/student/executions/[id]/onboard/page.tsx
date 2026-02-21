@@ -10,16 +10,46 @@ import { ArrowRight, CheckCircle, FileText, ExternalLink, AlertCircle } from 'lu
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 function fmt(text: string): React.ReactNode[] {
+  if (!text) return [];
   const parts: React.ReactNode[] = [];
-  let remaining = text;
+  let remaining = text
+    .replace(/^#{1,3}\s+(.+)$/gm, '**$1**')
+    .replace(/^- /gm, '• ');
   let key = 0;
+
   while (remaining.length > 0) {
-    const m = remaining.match(/\*\*(.+?)\*\*/);
-    if (!m) { parts.push(remaining); break; }
-    const idx = remaining.indexOf(m[0]);
-    if (idx > 0) parts.push(remaining.slice(0, idx));
-    parts.push(<strong key={key++}>{m[1]}</strong>);
-    remaining = remaining.slice(idx + m[0].length);
+    const mdLinkMatch = remaining.match(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
+    const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+    const urlMatch = remaining.match(/(?<!\]\()(?<!\()(https?:\/\/[^\s<>)\]]+)/);
+
+    const candidates: { idx: number; type: string; match: RegExpMatchArray }[] = [];
+    if (mdLinkMatch) candidates.push({ idx: remaining.indexOf(mdLinkMatch[0]), type: 'mdlink', match: mdLinkMatch });
+    if (boldMatch) candidates.push({ idx: remaining.indexOf(boldMatch[0]), type: 'bold', match: boldMatch });
+    if (urlMatch) {
+      const uidx = remaining.indexOf(urlMatch[0]);
+      const insideMd = mdLinkMatch && uidx >= remaining.indexOf(mdLinkMatch[0]) && uidx < remaining.indexOf(mdLinkMatch[0]) + mdLinkMatch[0].length;
+      if (!insideMd) candidates.push({ idx: uidx, type: 'url', match: urlMatch });
+    }
+
+    candidates.sort((a, b) => a.idx - b.idx);
+    const w = candidates[0];
+    if (!w || w.idx === -1) { parts.push(remaining); break; }
+    if (w.idx > 0) parts.push(remaining.slice(0, w.idx));
+
+    if (w.type === 'mdlink') {
+      parts.push(<a key={key++} href={w.match[2]} target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:text-violet-800 underline underline-offset-2">{w.match[1]}</a>);
+    } else if (w.type === 'bold') {
+      parts.push(<strong key={key++}>{w.match[1]}</strong>);
+    } else {
+      const clean = w.match[0].replace(/[.,;:!?)]+$/, '');
+      const tail = w.match[0].slice(clean.length);
+      let label = clean;
+      try { const u = new URL(clean); label = u.hostname.replace(/^www\./, '') + (u.pathname !== '/' ? u.pathname : ''); } catch {}
+      parts.push(<a key={key++} href={clean} target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:text-violet-800 underline underline-offset-2">{label}</a>);
+      if (tail) parts.push(tail);
+    }
+
+    remaining = remaining.slice(w.idx + w.match[0].length);
   }
   return parts;
 }
