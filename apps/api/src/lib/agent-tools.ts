@@ -1848,21 +1848,38 @@ async function toolPlanLegal(args: any, companyId?: string): Promise<string> {
   if (!workUnits?.length) return 'No work units found. Run the earlier stages first.';
 
   try {
-    emitThinking('Drafting master contractor agreement...');
-    emitThinking('Designing onboarding page template...');
-    const taskSummary = workUnits.map((wu: any) => wu.title).join(', ');
-    const raw = await gpt52(
-      `Write ONE master contractor agreement and ONE onboarding template. Return JSON: {"contract":{"title":"...","content":"Full enforceable agreement text"},"onboarding":{"blocks":[{"type":"hero","content":{"heading":"...","subheading":"..."}},{"type":"text","content":{"heading":"Instructions","body":"..."}},{"type":"checklist","content":{"heading":"Before You Start","items":["..."]}},{"type":"cta","content":{"heading":"Ready?","body":"...","buttonText":"Start Working"}}]}}`,
-      `Project: ${brief?.projectName || args.projectName || 'Project'}\nTasks: ${taskSummary}`,
-      4096
-    );
-    const legal = parseJSON(raw);
-    planState.set(cid, { ...state, legal });
+    const allContracts: any[] = [];
+    const allOnboarding: any[] = [];
 
-    emitThinking(`Contract: "${legal.contract?.title}" drafted`);
-    emitThinking(`Onboarding: ${legal.onboarding?.blocks?.length || 0} blocks designed`);
+    // Generate individual contract + onboarding per work unit
+    for (let i = 0; i < workUnits.length; i++) {
+      const wu = workUnits[i];
+      emitThinking(`Drafting contract for "${wu.title}" (${i + 1}/${workUnits.length})...`);
+
+      const raw = await gpt52(
+        `Write a contractor agreement AND onboarding page for this specific task. Tailor the contract scope, deliverables, and terms to this exact task. Return JSON: {"contract":{"title":"...","content":"Full enforceable agreement: parties, scope specific to this task, deliverables, IP assignment, confidentiality, payment ($${((wu.priceInCents || 0) / 100).toFixed(0)}), revision policy (${wu.revisionLimit || 2} revisions), deadline (${wu.deadlineHours || 48}h), termination, dispute resolution. 300+ words."},"onboarding":{"blocks":[{"type":"hero","content":{"heading":"...","subheading":"..."}},{"type":"text","content":{"heading":"Instructions","body":"step-by-step for this specific task"}},{"type":"checklist","content":{"heading":"Before You Start","items":["task-specific items"]}},{"type":"cta","content":{"heading":"Ready?","body":"...","buttonText":"Start Working"}}]}}`,
+        `Task: ${wu.title}\nSpec: ${(wu.spec || '').slice(0, 500)}\nCategory: ${wu.category}\nSkills: ${(wu.requiredSkills || []).join(', ')}\nDeliverable: ${(wu.deliverableFormat || []).join(', ')}\nPrice: $${((wu.priceInCents || 0) / 100).toFixed(0)}\nDeadline: ${wu.deadlineHours || 48}h`,
+        4096
+      );
+
+      try {
+        const legal = parseJSON(raw);
+        allContracts.push({ ...legal.contract, taskIndex: i, taskTitle: wu.title });
+        allOnboarding.push({ ...legal.onboarding, taskIndex: i, taskTitle: wu.title });
+        emitThinking(`  ✓ Contract: "${legal.contract?.title}"`);
+        emitThinking(`  ✓ Onboarding: ${legal.onboarding?.blocks?.length || 0} blocks`);
+      } catch {
+        emitThinking(`  ⚠ Failed to parse legal for "${wu.title}"`);
+      }
+    }
+
+    planState.set(cid, { ...state, legal: { contracts: allContracts, onboarding: allOnboarding } });
+
+    emitThinking(`\nLegal package complete: ${allContracts.length} contracts, ${allOnboarding.length} onboarding pages.`);
     emitThinking('Planning complete. Ready for execution.');
-    return `Legal package ready:\n- Contract: "${legal.contract?.title}"\n- Onboarding: ${legal.onboarding?.blocks?.length || 0} blocks\n\nPlan complete. Ready to create all ${workUnits.length} work units, contract, and onboarding pages. Ask the user to confirm.`;
+
+    const summary = allContracts.map((c, i) => `${i + 1}. "${c.title}" for ${c.taskTitle}`).join('\n');
+    return `${allContracts.length} individual contracts + ${allOnboarding.length} onboarding pages ready:\n${summary}\n\nPlan complete. Ask the user to confirm before creating.`;
   } catch (e: any) { return `Legal planning failed: ${e.message?.slice(0, 100)}`; }
 }
 
