@@ -125,7 +125,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const interval = setInterval(() => {
       loadPanel();
-      if (selectedWU) selectWU(selectedWU.id);
+      if (selectedWU) selectWU(selectedWU.id, false);
     }, 30000);
     return () => clearInterval(interval);
   }, [selectedWU]);
@@ -174,15 +174,14 @@ export default function DashboardPage() {
     } catch {}
   }
 
-  async function selectWU(id: string) {
+  async function selectWU(id: string, resetTab = true) {
     try {
       const t = await getToken(); if (!t) return;
       const r = await fetch(`${API_URL}/api/workunits/${id}`, { headers: { Authorization: `Bearer ${t}` } });
       if (r.ok) {
         const d = await r.json();
         setSelectedWU(d);
-        setPanelTab('overview');
-        setPendingChanges({});
+        if (resetTab) { setPanelTab('overview'); setPendingChanges({}); }
         if (d.infoCollectionTemplateId) loadInterview(d.infoCollectionTemplateId);
         else setInterviewDetail(null);
         loadOnboarding(d.id);
@@ -216,7 +215,7 @@ export default function DashboardPage() {
         body: JSON.stringify(pendingChanges),
       });
       setPendingChanges({});
-      await selectWU(selectedWU.id);
+      await selectWU(selectedWU.id, false);
     } catch {}
     setSaving(false);
   }
@@ -229,7 +228,7 @@ export default function DashboardPage() {
         headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ verdict }),
       });
-      if (selectedWU) selectWU(selectedWU.id);
+      if (selectedWU) selectWU(selectedWU.id, false);
     } catch {}
   }
 
@@ -239,7 +238,7 @@ export default function DashboardPage() {
       await fetch(`${API_URL}/api/executions/${execId}/approve-application`, {
         method: 'POST', headers: { Authorization: `Bearer ${t}` },
       });
-      if (selectedWU) selectWU(selectedWU.id);
+      if (selectedWU) selectWU(selectedWU.id, false);
     } catch {}
   }
 
@@ -257,7 +256,7 @@ export default function DashboardPage() {
         headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'active' }),
       });
-      await selectWU(selectedWU.id);
+      await selectWU(selectedWU.id, false);
       loadPanel();
     } catch {}
   }
@@ -585,7 +584,7 @@ export default function DashboardPage() {
               setMessages(prev => [...prev, { id: `t-${Date.now()}-${Math.random()}`, role: 'tool', content: null, toolName: ev.name, toolResult: ev.result }]);
               // Live-update panel when agent modifies work unit data
               if (ev.name === 'update_work_unit' && selectedWU) {
-                selectWU(selectedWU.id); // Refresh the WU detail
+                selectWU(selectedWU.id, false); // Refresh without resetting tab
               }
               if (ev.name === 'set_onboarding' && selectedWU) {
                 loadOnboarding(selectedWU.id); // Refresh onboarding blocks
@@ -599,7 +598,7 @@ export default function DashboardPage() {
                 loadPanel(); // Refresh work unit list
               }
               if (ev.name === 'publish_work_unit' || ev.name === 'fund_escrow') {
-                if (selectedWU) selectWU(selectedWU.id); // Refresh financial data
+                if (selectedWU) selectWU(selectedWU.id, false); // Refresh financial data
                 loadPanel();
               }
             } else if (ev.type === 'suggestions') {
@@ -608,7 +607,7 @@ export default function DashboardPage() {
               if (ev.conversationId) setConversationId(ev.conversationId);
               loadConversations();
               loadPanel();
-              if (selectedWU) selectWU(selectedWU.id);
+              if (selectedWU) selectWU(selectedWU.id, false);
             } else if (ev.type === 'error') {
               setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: ev.message || 'Error occurred.' } : m));
             }
@@ -869,9 +868,20 @@ export default function DashboardPage() {
                       ))}
                     </div>
                     <div>
-                      <span className="text-slate-500 text-xs">Spec</span>
-                      <textarea value={getVal('spec', selectedWU.spec)} onChange={e => stageChange('spec', e.target.value)}
-                        className="w-full text-xs text-slate-700 bg-transparent border border-slate-100 rounded p-2 focus:ring-0 focus:border-slate-300 resize-none mt-0.5" rows={5} />
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500 text-xs">Spec</span>
+                        <button onClick={() => setPendingChanges(prev => ({ ...prev, _editingSpec: !prev._editingSpec }))} className="text-[10px] text-violet-500 hover:text-violet-700">
+                          {pendingChanges._editingSpec ? 'preview' : 'edit'}
+                        </button>
+                      </div>
+                      {pendingChanges._editingSpec ? (
+                        <textarea value={getVal('spec', selectedWU.spec)} onChange={e => stageChange('spec', e.target.value)}
+                          className="w-full text-xs text-slate-700 bg-transparent border border-slate-100 rounded p-2 focus:ring-0 focus:border-slate-300 resize-none mt-0.5" rows={8} />
+                      ) : (
+                        <div className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed mt-0.5 max-h-60 overflow-y-auto">
+                          {formatText(getVal('spec', selectedWU.spec) || '')}
+                        </div>
+                      )}
                     </div>
 
                     {/* Action buttons */}
