@@ -870,6 +870,60 @@ export default function DashboardPage() {
                 {/* Overview */}
                 {panelTab === 'overview' && (
                   <div className="space-y-3">
+                    {/* Progress & SLA summary */}
+                    {(() => {
+                      const execs = selectedWU.executions || [];
+                      const total = execs.length;
+                      const completed = execs.filter((e: any) => e.status === 'approved').length;
+                      const submitted = execs.filter((e: any) => e.status === 'submitted').length;
+                      const active = execs.filter((e: any) => ['assigned', 'clocked_in'].includes(e.status)).length;
+                      const revisions = execs.filter((e: any) => e.status === 'revision_needed').length;
+                      const nearestDeadline = execs
+                        .filter((e: any) => e.deadlineAt && ['assigned', 'clocked_in'].includes(e.status))
+                        .sort((a: any, b: any) => new Date(a.deadlineAt).getTime() - new Date(b.deadlineAt).getTime())[0];
+                      const hoursLeft = nearestDeadline ? Math.round((new Date(nearestDeadline.deadlineAt).getTime() - Date.now()) / 3600000) : null;
+                      const progress = total > 0 ? Math.round((completed / Math.max(total, 1)) * 100) : 0;
+
+                      return (
+                        <div className="space-y-2.5 pb-3 border-b border-slate-100">
+                          {/* Progress bar */}
+                          {total > 0 && (
+                            <div>
+                              <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                                <span>{completed}/{total} completed</span>
+                                <span>{progress}%</span>
+                              </div>
+                              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-slate-900 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Stats row */}
+                          <div className="flex gap-4 text-[11px]">
+                            {active > 0 && <span className="text-slate-600">{active} working</span>}
+                            {submitted > 0 && <span className="text-slate-600">{submitted} awaiting review</span>}
+                            {revisions > 0 && <span className="text-slate-600">{revisions} in revision</span>}
+                            {total === 0 && <span className="text-slate-400">No executions yet</span>}
+                          </div>
+
+                          {/* Deadline */}
+                          {hoursLeft !== null && (
+                            <div className="text-[11px] text-slate-500">
+                              {hoursLeft > 0
+                                ? `Next deadline in ${hoursLeft}h`
+                                : `Deadline overdue by ${Math.abs(hoursLeft)}h`}
+                            </div>
+                          )}
+
+                          {/* Revision limit */}
+                          <div className="text-[11px] text-slate-400">
+                            {selectedWU.revisionLimit} revisions allowed per submission
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     <Row label="Title" value={getVal('title', selectedWU.title)} onChange={v => stageChange('title', v)} />
                     <SelectRow label="Status" value={getVal('status', selectedWU.status)} options={['draft', 'active', 'paused', 'cancelled']} onChange={v => stageChange('status', v)} />
                     <Row label="Price ($)" value={`${((getVal('priceInCents', selectedWU.priceInCents)) / 100)}`} onChange={v => { const n = parseFloat(v); if (!isNaN(n)) stageChange('priceInCents', Math.round(n * 100)); }} />
