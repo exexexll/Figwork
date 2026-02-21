@@ -242,6 +242,16 @@ export default function DashboardPage() {
     } catch {}
   }
 
+  async function rejectApp(execId: string) {
+    try {
+      const t = await getToken(); if (!t) return;
+      await fetch(`${API_URL}/api/executions/${execId}/reject`, {
+        method: 'POST', headers: { Authorization: `Bearer ${t}` },
+      });
+      if (selectedWU) selectWU(selectedWU.id, false);
+    } catch {}
+  }
+
   async function fundAndPublish() {
     if (!selectedWU) return;
     try {
@@ -1051,10 +1061,10 @@ export default function DashboardPage() {
                                 {e.qualityScore != null && <span className="text-[10px] text-slate-400">{e.qualityScore}%</span>}
                               </div>
                             </div>
-                            <div className="flex gap-1 flex-shrink-0">
-                              {e.status === 'pending_review' && <>
+                            <div className="flex gap-1 flex-shrink-0 flex-wrap justify-end">
+                              {['pending_review', 'pending_screening'].includes(e.status) && <>
                                 <button onClick={() => approveApp(e.id)} className="text-[10px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-medium">assign</button>
-                                <button onClick={() => reviewExec(e.id, 'failed')} className="text-[10px] px-2 py-0.5 rounded bg-red-50 text-red-400 hover:bg-red-100 font-medium">reject</button>
+                                <button onClick={() => rejectApp(e.id)} className="text-[10px] px-2 py-0.5 rounded bg-red-50 text-red-400 hover:bg-red-100 font-medium">reject</button>
                               </>}
                               {e.status === 'submitted' && <>
                                 <button onClick={() => reviewExec(e.id, 'approved')} className="text-[10px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-medium">approve</button>
@@ -1062,7 +1072,7 @@ export default function DashboardPage() {
                                 <button onClick={() => reviewExec(e.id, 'failed')} className="text-[10px] px-2 py-0.5 rounded bg-red-50 text-red-400 hover:bg-red-100 font-medium">reject</button>
                               </>}
                               {['assigned', 'clocked_in'].includes(e.status) && (
-                                <button onClick={() => reviewExec(e.id, 'failed')} className="text-[10px] px-2 py-0.5 rounded bg-red-50 text-red-400 hover:bg-red-100 font-medium">cancel</button>
+                                <button onClick={() => rejectApp(e.id)} className="text-[10px] px-2 py-0.5 rounded bg-red-50 text-red-400 hover:bg-red-100 font-medium">cancel</button>
                               )}
                             </div>
                           </div>

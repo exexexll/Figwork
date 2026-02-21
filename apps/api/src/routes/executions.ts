@@ -504,7 +504,7 @@ export async function executionRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // POST /:id/reject — Company rejects a candidate (manual mode)
+  // POST /:id/reject — Company rejects/cancels a candidate at any pre-completion stage
   fastify.post<{ Params: { id: string } }>(
     '/:id/reject',
     async (request, reply) => {
@@ -516,7 +516,7 @@ export async function executionRoutes(fastify: FastifyInstance) {
       const { id } = request.params;
 
       const execution = await db.execution.findFirst({
-        where: { id, status: { in: ['pending_review', 'pending_screening'] } },
+        where: { id, status: { in: ['pending_review', 'pending_screening', 'assigned', 'clocked_in'] } },
         include: {
           workUnit: true,
           student: { select: { id: true, name: true, clerkId: true } },
@@ -524,26 +524,30 @@ export async function executionRoutes(fastify: FastifyInstance) {
       });
 
       if (!execution) {
-        return notFound(reply, 'Execution not found or not in reviewable state');
+        return notFound(reply, 'Execution not found or not in a cancellable state');
       }
 
       if (execution.workUnit.companyId !== company.id) {
         return forbidden(reply, 'Not your work unit');
       }
 
+      const wasActive = ['assigned', 'clocked_in'].includes(execution.status);
+
       const updated = await db.execution.update({
         where: { id },
         data: { status: 'cancelled' },
       });
 
-      // Notify the rejected student
+      // Notify the student
       await db.notification.create({
         data: {
           userId: execution.student.clerkId,
           userType: 'student',
-          type: 'application_rejected',
-          title: 'Application Not Selected',
-          body: `Your application for "${execution.workUnit.title}" was not selected.`,
+          type: wasActive ? 'execution_cancelled' : 'application_rejected',
+          title: wasActive ? 'Assignment Cancelled' : 'Application Not Selected',
+          body: wasActive
+            ? `Your assignment for "${execution.workUnit.title}" has been cancelled by the company.`
+            : `Your application for "${execution.workUnit.title}" was not selected.`,
           data: { executionId: id, workUnitId: execution.workUnitId },
           channels: ['in_app'],
         },
@@ -885,7 +889,7 @@ export async function executionRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // POST /:id/approve-application — Company approves a pending_review application (manual mode)
+  // POST /:id/approve-application — Company approves a pending_review or pending_screening application
   fastify.post<{ Params: { id: string } }>(
     '/:id/approve-application',
     async (request, reply) => {
@@ -894,7 +898,7 @@ export async function executionRoutes(fastify: FastifyInstance) {
 
       const { id } = request.params;
       const execution = await db.execution.findFirst({
-        where: { id, workUnit: { companyId: company.id }, status: 'pending_review' },
+        where: { id, workUnit: { companyId: company.id }, status: { in: ['pending_review', 'pending_screening'] } },
         include: { workUnit: true, student: true },
       });
 
