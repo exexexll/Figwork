@@ -200,13 +200,12 @@ export default function LandingPage() {
             <div className="flex items-center gap-8 md:gap-12">
               {[
                 { src: '/cal.png', alt: 'UC Berkeley' },
-                { src: '/ucsd.webp', alt: 'UCSD' },
+                { src: '/ucsd.png', alt: 'UCSD' },
                 { src: '/usc.png', alt: 'USC' },
                 { src: '/mit.png', alt: 'MIT' },
               ].map((uni) => (
                 <img key={uni.alt} src={uni.src} alt={uni.alt}
-                  className="h-10 md:h-14 w-auto object-contain hover:opacity-90 transition-opacity"
-                  style={{ mixBlendMode: 'lighten', opacity: 0.7 }} />
+                  className="h-10 md:h-14 w-auto object-contain opacity-70 hover:opacity-90 transition-opacity" />
               ))}
             </div>
           </div>
