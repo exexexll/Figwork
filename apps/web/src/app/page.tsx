@@ -143,7 +143,12 @@ export default function LandingPage() {
         <main className="flex-1 flex flex-col items-center justify-center px-6 -mt-16">
           {/* Title */}
           <h1 className="text-center text-[clamp(2.5rem,5.5vw,4.5rem)] font-bold text-white leading-[1.1] tracking-tight mb-5">
-            Make things <span className="line-through decoration-2 decoration-white/50">that&apos;re</span> possible
+            Make things{' '}
+            <span className="relative inline-block">
+              <span className="text-white/35">that&apos;re</span>
+              <span className="absolute left-[-4%] right-[-4%] top-[52%] h-[3px] bg-white/50 rounded-full" style={{ transform: 'rotate(-2deg)' }} />
+            </span>
+            {' '}possible
           </h1>
 
           {/* Subtitle */}
