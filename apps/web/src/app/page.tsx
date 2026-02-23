@@ -149,7 +149,7 @@ export default function LandingPage() {
 
           {/* Subtitle */}
           <p className="text-center text-lg md:text-xl text-white/50 mb-10">
-            <span className="text-white font-medium">Figwork manages human intelligence</span>{' '}
+            <span className="text-white font-medium">We manage human intelligence</span>{' '}
             to {PRESETS[presetIdx]}
           </p>
 
