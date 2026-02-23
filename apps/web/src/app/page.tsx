@@ -129,13 +129,14 @@ export default function LandingPage() {
             <span className="text-base font-semibold text-white/90">figwork</span>
           </div>
           <div className="flex items-center gap-4">
-            <Link href="/marketplace" className="text-sm text-white/40 hover:text-white/70 transition-colors">
+            <button onClick={() => { localStorage.setItem('figwork_role', 'student'); router.push('/sign-up'); }}
+              className="text-sm text-white/40 hover:text-white/70 transition-colors cursor-pointer">
               Find jobs?
-            </Link>
-            <Link href="/for-business"
-              className="text-sm font-medium text-white bg-white/10 hover:bg-white/15 border border-white/20 px-4 py-1.5 rounded-lg transition-all">
+            </button>
+            <button onClick={() => { localStorage.setItem('figwork_role', 'company'); router.push('/sign-up'); }}
+              className="text-sm font-medium text-white bg-white/10 hover:bg-white/15 border border-white/20 px-4 py-1.5 rounded-lg transition-all cursor-pointer">
               Business
-            </Link>
+            </button>
           </div>
         </header>
 
@@ -143,19 +144,13 @@ export default function LandingPage() {
         <main className="flex-1 flex flex-col items-center justify-center px-6 -mt-16">
           {/* Title */}
           <h1 className="text-center text-[clamp(2.5rem,5.5vw,4.5rem)] font-bold text-white leading-[1.1] tracking-tight mb-5">
-            Make things<br />
-            <span className="relative">
-              <span className="text-white/30">that&apos;re possible</span>
-              <svg className="absolute left-0 top-1/2 w-full" viewBox="0 0 400 8" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M0 4 Q100 0 200 5 Q300 8 400 3" stroke="rgba(255,255,255,0.35)" strokeWidth="2.5" strokeLinecap="round" />
-              </svg>
-            </span>
+            Make things that&apos;re possible
           </h1>
 
-          {/* Subtitle — one random preset */}
+          {/* Subtitle */}
           <p className="text-center text-lg md:text-xl text-white/50 mb-10">
-            Figwork manages human intelligence to{' '}
-            <span className="text-white/80 font-medium">{PRESETS[presetIdx]}</span>
+            <span className="text-white font-medium">Figwork manages human intelligence</span>{' '}
+            to {PRESETS[presetIdx]}
           </p>
 
           {/* Input box */}
