@@ -165,24 +165,12 @@ export default function LandingPage() {
             {' '}possible
           </h1>
 
-          {/* Subtitle */}
-          <p className="text-center text-lg md:text-xl text-white/50 mb-6">
-            <span className="text-white font-medium">We manage human intelligence</span>{' '}
-            to <span className="transition-opacity duration-700" style={{ opacity: presetOpacity }}>{PRESETS[presetIdx]}</span>
-          </p>
-
-          {/* University badges */}
-          <div className="flex items-center justify-center gap-6 md:gap-8 mb-10">
-            <span className="text-[11px] text-white/25 hidden sm:block">200,000+ contractors from</span>
-            {[
-              { src: '/cal.png', alt: 'UC Berkeley' },
-              { src: '/ucsd.webp', alt: 'UC San Diego' },
-              { src: '/usc.png', alt: 'USC' },
-              { src: '/mit.png', alt: 'MIT' },
-            ].map((uni) => (
-              <img key={uni.alt} src={uni.src} alt={uni.alt}
-                className="h-6 md:h-7 w-auto object-contain brightness-0 invert opacity-30 hover:opacity-50 transition-opacity" />
-            ))}
+          {/* Subtitle — fixed width so it doesn't reflow on text change */}
+          <div className="text-center mb-10 w-full max-w-2xl">
+            <p className="text-lg md:text-xl text-white/50">
+              <span className="text-white font-medium">We manage human intelligence</span>{' '}
+              to <span className="inline-block min-w-[200px] text-left transition-opacity duration-700" style={{ opacity: presetOpacity }}>{PRESETS[presetIdx]}</span>
+            </p>
           </div>
 
           {/* Input box */}
@@ -221,6 +209,23 @@ export default function LandingPage() {
                   <ArrowUp className="w-4 h-4" />
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* University badges — below textbox */}
+          <div className="flex flex-col items-center gap-3 mt-8">
+            <span className="text-[11px] text-white/20">200,000+ contractors from</span>
+            <div className="flex items-center gap-5 md:gap-7">
+              {[
+                { src: '/cal.png', alt: 'UC Berkeley' },
+                { src: '/ucsd.webp', alt: 'UCSD' },
+                { src: '/usc.png', alt: 'USC' },
+                { src: '/mit.png', alt: 'MIT' },
+              ].map((uni) => (
+                <img key={uni.alt} src={uni.src} alt={uni.alt}
+                  className="h-5 md:h-6 w-auto object-contain opacity-25 hover:opacity-40 transition-opacity"
+                  style={{ filter: 'grayscale(1) brightness(3)' }} />
+              ))}
             </div>
           </div>
         </main>
