@@ -123,17 +123,17 @@ export default function LandingPage() {
       {/* Content */}
       <div className="relative z-10 flex flex-col min-h-screen">
         {/* Header */}
-        <header className="flex items-center justify-between px-6 md:px-12 py-5">
-          <div className="flex items-center gap-2">
-            <img src="/iconfigwork.png" alt="Figwork" className="h-8 w-8" />
-            <span className="text-base font-semibold text-white/90">figwork</span>
+        <header className="flex items-center justify-between px-4 md:px-12 py-4 md:py-5">
+          <div className="flex items-center gap-1.5">
+            <img src="/iconfigwork.png" alt="Figwork" className="h-6 w-6 md:h-8 md:w-8" />
+            <span className="text-sm md:text-base font-semibold text-white/90 hidden sm:block">figwork</span>
           </div>
-          <div className="flex items-center gap-2 md:gap-4">
-            <Link href="/become-contractor" className="text-xs md:text-sm text-white/40 hover:text-white/70 transition-colors whitespace-nowrap">
+          <div className="flex items-center gap-3 md:gap-4">
+            <Link href="/become-contractor" className="text-[11px] md:text-sm text-white/40 hover:text-white/70 transition-colors">
               Find jobs?
             </Link>
             <Link href="/for-business"
-              className="text-xs md:text-sm font-medium text-white bg-white/10 hover:bg-white/15 border border-white/20 px-3 md:px-4 py-1 md:py-1.5 rounded-lg transition-all whitespace-nowrap">
+              className="text-[11px] md:text-sm font-medium text-white bg-white/10 hover:bg-white/15 border border-white/20 px-2.5 py-1 md:px-4 md:py-1.5 rounded-md md:rounded-lg transition-all">
               Business
             </Link>
           </div>
