@@ -195,19 +195,18 @@ export default function LandingPage() {
           </div>
 
           {/* University badges — below textbox */}
-          <div className="flex flex-col items-center gap-3 mt-8">
-            <span className="text-[11px] text-white/20">200,000+ contractors from</span>
-            <div className="flex items-center gap-6 md:gap-8">
+          <div className="flex flex-col items-center gap-4 mt-10">
+            <span className="text-sm md:text-base text-white/30 font-medium tracking-wide">200,000+ contractors from</span>
+            <div className="flex items-center gap-8 md:gap-12">
               {[
-                { src: '/cal.png', alt: 'UC Berkeley', h: 'h-8 md:h-10' },
-                { src: '/ucsd.webp', alt: 'UCSD', h: 'h-7 md:h-9' },
-                { src: '/usc.png', alt: 'USC', h: 'h-7 md:h-9' },
-                { src: '/mit.png', alt: 'MIT', h: 'h-6 md:h-8' },
+                { src: '/cal.png', alt: 'UC Berkeley' },
+                { src: '/ucsd.webp', alt: 'UCSD' },
+                { src: '/usc.png', alt: 'USC' },
+                { src: '/mit.png', alt: 'MIT' },
               ].map((uni) => (
-                <div key={uni.alt} className="bg-white/10 rounded-md p-1.5 hover:bg-white/15 transition-colors">
-                  <img src={uni.src} alt={uni.alt}
-                    className={`${uni.h} w-auto object-contain`} />
-                </div>
+                <img key={uni.alt} src={uni.src} alt={uni.alt}
+                  className="h-10 md:h-14 w-auto object-contain hover:opacity-90 transition-opacity"
+                  style={{ mixBlendMode: 'lighten', opacity: 0.7 }} />
               ))}
             </div>
           </div>
