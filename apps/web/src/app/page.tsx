@@ -115,7 +115,7 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Background image */}
-      <div className="fixed inset-0">
+      <div className="fixed inset-0 pointer-events-none">
         <img src="/landing-bg.png" alt="" className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-black/40" />
       </div>
