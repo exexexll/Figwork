@@ -165,11 +165,11 @@ export default function LandingPage() {
             {' '}possible
           </h1>
 
-          {/* Subtitle — fixed width so it doesn't reflow on text change */}
-          <div className="text-center mb-10 w-full max-w-2xl">
-            <p className="text-lg md:text-xl text-white/50">
-              <span className="text-white font-medium">We manage human intelligence</span>{' '}
-              to <span className="inline-block min-w-[200px] text-left transition-opacity duration-700" style={{ opacity: presetOpacity }}>{PRESETS[presetIdx]}</span>
+          {/* Subtitle — two lines: fixed first line, changing second line */}
+          <div className="text-center mb-10">
+            <p className="text-lg md:text-xl text-white font-medium">We manage human intelligence</p>
+            <p className="text-lg md:text-xl text-white/50 mt-0.5 h-8 transition-opacity duration-700" style={{ opacity: presetOpacity }}>
+              to {PRESETS[presetIdx]}
             </p>
           </div>
 
@@ -215,7 +215,7 @@ export default function LandingPage() {
           {/* University badges — below textbox */}
           <div className="flex flex-col items-center gap-3 mt-8">
             <span className="text-[11px] text-white/20">200,000+ contractors from</span>
-            <div className="flex items-center gap-5 md:gap-7">
+            <div className="flex items-center gap-6 md:gap-8">
               {[
                 { src: '/cal.png', alt: 'UC Berkeley' },
                 { src: '/ucsd.webp', alt: 'UCSD' },
@@ -223,8 +223,8 @@ export default function LandingPage() {
                 { src: '/mit.png', alt: 'MIT' },
               ].map((uni) => (
                 <img key={uni.alt} src={uni.src} alt={uni.alt}
-                  className="h-5 md:h-6 w-auto object-contain opacity-25 hover:opacity-40 transition-opacity"
-                  style={{ filter: 'grayscale(1) brightness(3)' }} />
+                  className="h-7 md:h-9 w-auto object-contain opacity-40 hover:opacity-60 transition-opacity"
+                  style={{ filter: 'brightness(0) invert(1)', mixBlendMode: 'screen' }} />
               ))}
             </div>
           </div>
