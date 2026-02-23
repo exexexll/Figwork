@@ -128,14 +128,14 @@ export default function LandingPage() {
             <img src="/iconfigwork.png" alt="Figwork" className="h-6 w-6 md:h-8 md:w-8" />
             <span className="text-sm md:text-base font-semibold text-white/90 hidden sm:block">figwork</span>
           </div>
-          <div className="flex items-center gap-3 md:gap-4">
-            <Link href="/become-contractor" className="text-[11px] md:text-sm text-white/40 hover:text-white/70 transition-colors">
+          <div className="flex items-center gap-3 md:gap-4 relative z-50">
+            <a href="/become-contractor" className="text-[11px] md:text-sm text-white/40 hover:text-white/70 transition-colors">
               Find jobs?
-            </Link>
-            <Link href="/for-business"
+            </a>
+            <a href="/for-business"
               className="text-[11px] md:text-sm font-medium text-white bg-white/10 hover:bg-white/15 border border-white/20 px-2.5 py-1 md:px-4 md:py-1.5 rounded-md md:rounded-lg transition-all">
               Business
-            </Link>
+            </a>
           </div>
         </header>
 
@@ -198,9 +198,9 @@ export default function LandingPage() {
         </main>
 
         {/* Footer */}
-        <footer className="flex items-center justify-center gap-6 px-6 py-6 text-[11px] text-white/15">
-          <Link href="/terms" className="hover:text-white/40 transition-colors">Terms</Link>
-          <Link href="/privacy" className="hover:text-white/40 transition-colors">Privacy</Link>
+        <footer className="flex items-center justify-center gap-6 px-6 py-6 text-[11px] text-white/15 relative z-50">
+          <a href="/terms" className="hover:text-white/40 transition-colors">Terms</a>
+          <a href="/privacy" className="hover:text-white/40 transition-colors">Privacy</a>
           <span>© {new Date().getFullYear()} Figwork</span>
         </footer>
       </div>
