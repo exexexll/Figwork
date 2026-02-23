@@ -7,11 +7,11 @@ import Link from 'next/link';
 import { Paperclip, ArrowUp } from 'lucide-react';
 
 const PRESETS = [
-  'manages your UGC creator campaigns',
-  'runs your data annotation pipeline',
-  'handles your content marketing',
-  'operates your QA testing team',
-  'coordinates your research operations',
+  'manage your UGC creator campaigns',
+  'run your data annotation pipeline',
+  'handle your content marketing',
+  'operate your QA testing team',
+  'coordinate your research operations',
 ];
 
 const TYPING_PROMPTS = [
@@ -28,7 +28,7 @@ export default function LandingPage() {
   const { getToken } = useAuth();
   const router = useRouter();
   const [input, setInput] = useState('');
-  const [presetIdx, setPresetIdx] = useState(0);
+  const [presetIdx] = useState(() => Math.floor(Math.random() * PRESETS.length));
   const [typingText, setTypingText] = useState('');
   const [isTyping, setIsTyping] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -61,13 +61,6 @@ export default function LandingPage() {
     detectRoleAndRedirect();
   }, [isLoaded, isSignedIn, router, getToken]);
 
-  // Rotate subtitle preset every 4s
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setPresetIdx(prev => (prev + 1) % PRESETS.length);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Typewriter animation for input placeholder
   useEffect(() => {
@@ -121,20 +114,10 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Background gradient — Lovable-style */}
-      <div className="fixed inset-0"
-        style={{
-          background: 'radial-gradient(ellipse 120% 80% at 50% 20%, #1a103a 0%, #0f0a1a 30%, #1a0a2e 50%, #2d1045 70%, #4a1942 85%, #1a0a1a 100%)',
-        }}
-      />
-      {/* Soft color orbs */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[10%] left-[20%] w-[600px] h-[600px] rounded-full opacity-20"
-          style={{ background: 'radial-gradient(circle, rgba(139,92,246,0.4) 0%, transparent 60%)' }} />
-        <div className="absolute bottom-[5%] right-[15%] w-[500px] h-[500px] rounded-full opacity-15"
-          style={{ background: 'radial-gradient(circle, rgba(236,72,153,0.4) 0%, transparent 60%)' }} />
-        <div className="absolute top-[40%] right-[30%] w-[300px] h-[300px] rounded-full opacity-10"
-          style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.5) 0%, transparent 60%)' }} />
+      {/* Background image */}
+      <div className="fixed inset-0">
+        <img src="/landing-bg.png" alt="" className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-black/40" />
       </div>
 
       {/* Content */}
@@ -146,10 +129,10 @@ export default function LandingPage() {
             <span className="text-base font-semibold text-white/90">figwork</span>
           </div>
           <div className="flex items-center gap-4">
-            <Link href="/become-contractor" className="text-sm text-white/40 hover:text-white/70 transition-colors">
+            <Link href="/marketplace" className="text-sm text-white/40 hover:text-white/70 transition-colors">
               Find jobs?
             </Link>
-            <Link href="/sign-up"
+            <Link href="/for-business"
               className="text-sm font-medium text-white bg-white/10 hover:bg-white/15 border border-white/20 px-4 py-1.5 rounded-lg transition-all">
               Business
             </Link>
@@ -159,22 +142,21 @@ export default function LandingPage() {
         {/* Main content — centered column */}
         <main className="flex-1 flex flex-col items-center justify-center px-6 -mt-16">
           {/* Title */}
-          <h1 className="text-center text-[clamp(2.5rem,5.5vw,4.5rem)] font-bold text-white leading-[1.1] tracking-tight mb-4">
-            Make things{' '}
-            <span className="relative inline-block">
-              <span className="line-through decoration-white/40 decoration-2">that&apos;re possible</span>
+          <h1 className="text-center text-[clamp(2.5rem,5.5vw,4.5rem)] font-bold text-white leading-[1.1] tracking-tight mb-5">
+            Make things<br />
+            <span className="relative">
+              <span className="text-white/30">that&apos;re possible</span>
+              <svg className="absolute left-0 top-1/2 w-full" viewBox="0 0 400 8" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M0 4 Q100 0 200 5 Q300 8 400 3" stroke="rgba(255,255,255,0.35)" strokeWidth="2.5" strokeLinecap="round" />
+              </svg>
             </span>
           </h1>
 
-          {/* Rotating subtitle */}
-          <div className="text-center mb-10 h-8">
-            <p className="text-lg md:text-xl text-white/50">
-              Figwork manages human intelligence to{' '}
-              <span key={presetIdx} className="text-white/80 font-medium inline-block animate-fade-in">
-                {PRESETS[presetIdx]}
-              </span>
-            </p>
-          </div>
+          {/* Subtitle — one random preset */}
+          <p className="text-center text-lg md:text-xl text-white/50 mb-10">
+            Figwork manages human intelligence to{' '}
+            <span className="text-white/80 font-medium">{PRESETS[presetIdx]}</span>
+          </p>
 
           {/* Input box */}
           <div className="w-full max-w-2xl">
@@ -224,16 +206,6 @@ export default function LandingPage() {
         </footer>
       </div>
 
-      {/* Fade-in animation */}
-      <style jsx global>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(4px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in {
-          animation: fadeIn 0.4s ease-out;
-        }
-      `}</style>
     </div>
   );
 }
