@@ -128,12 +128,12 @@ export default function LandingPage() {
             <img src="/iconfigwork.png" alt="Figwork" className="h-8 w-8" />
             <span className="text-base font-semibold text-white/90">figwork</span>
           </div>
-          <div className="flex items-center gap-4">
-            <Link href="/become-contractor" className="text-sm text-white/40 hover:text-white/70 transition-colors">
+          <div className="flex items-center gap-2 md:gap-4">
+            <Link href="/become-contractor" className="text-xs md:text-sm text-white/40 hover:text-white/70 transition-colors whitespace-nowrap">
               Find jobs?
             </Link>
             <Link href="/for-business"
-              className="text-sm font-medium text-white bg-white/10 hover:bg-white/15 border border-white/20 px-4 py-1.5 rounded-lg transition-all">
+              className="text-xs md:text-sm font-medium text-white bg-white/10 hover:bg-white/15 border border-white/20 px-3 md:px-4 py-1 md:py-1.5 rounded-lg transition-all whitespace-nowrap">
               Business
             </Link>
           </div>
