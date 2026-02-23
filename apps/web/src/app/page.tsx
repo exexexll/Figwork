@@ -152,7 +152,7 @@ export default function LandingPage() {
 
           {/* Subtitle */}
           <p className="text-center text-lg md:text-xl text-white font-medium mb-10">
-            We manage human intelligence for hire in the AI economy
+            We manage human intelligence to deliver quality work for businesses in the AI economy.
           </p>
 
           {/* Input box */}
