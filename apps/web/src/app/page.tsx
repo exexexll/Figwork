@@ -28,8 +28,6 @@ export default function LandingPage() {
   const { getToken } = useAuth();
   const router = useRouter();
   const [input, setInput] = useState('');
-  const [presetIdx, setPresetIdx] = useState(() => Math.floor(Math.random() * PRESETS.length));
-  const [presetOpacity, setPresetOpacity] = useState(1);
   const [typingText, setTypingText] = useState('');
   const [isTyping, setIsTyping] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -96,19 +94,6 @@ export default function LandingPage() {
     return () => clearInterval(interval);
   }, [input]);
 
-  // Subtle preset crossfade — barely noticeable, every 6s
-  useEffect(() => {
-    if (input) return; // stop when user is typing
-    const interval = setInterval(() => {
-      setPresetOpacity(0);
-      setTimeout(() => {
-        setPresetIdx(prev => (prev + 1) % PRESETS.length);
-        setPresetOpacity(1);
-      }, 800);
-    }, 6000);
-    return () => clearInterval(interval);
-  }, [input]);
-
   function handleSubmit() {
     if (!input.trim()) return;
     // Store the prompt so the dashboard can use it
@@ -165,13 +150,10 @@ export default function LandingPage() {
             {' '}possible
           </h1>
 
-          {/* Subtitle — two lines: fixed first line, changing second line */}
-          <div className="text-center mb-10">
-            <p className="text-lg md:text-xl text-white font-medium">We manage human intelligence</p>
-            <p className="text-lg md:text-xl text-white/50 mt-0.5 h-8 transition-opacity duration-700" style={{ opacity: presetOpacity }}>
-              to {PRESETS[presetIdx]}
-            </p>
-          </div>
+          {/* Subtitle */}
+          <p className="text-center text-lg md:text-xl text-white font-medium mb-10">
+            We manage human intelligence for rent in the AI economy
+          </p>
 
           {/* Input box */}
           <div className="w-full max-w-2xl">
@@ -217,14 +199,15 @@ export default function LandingPage() {
             <span className="text-[11px] text-white/20">200,000+ contractors from</span>
             <div className="flex items-center gap-6 md:gap-8">
               {[
-                { src: '/cal.png', alt: 'UC Berkeley' },
-                { src: '/ucsd.webp', alt: 'UCSD' },
-                { src: '/usc.png', alt: 'USC' },
-                { src: '/mit.png', alt: 'MIT' },
+                { src: '/cal.png', alt: 'UC Berkeley', h: 'h-8 md:h-10' },
+                { src: '/ucsd.webp', alt: 'UCSD', h: 'h-7 md:h-9' },
+                { src: '/usc.png', alt: 'USC', h: 'h-7 md:h-9' },
+                { src: '/mit.png', alt: 'MIT', h: 'h-6 md:h-8' },
               ].map((uni) => (
-                <img key={uni.alt} src={uni.src} alt={uni.alt}
-                  className="h-7 md:h-9 w-auto object-contain opacity-40 hover:opacity-60 transition-opacity"
-                  style={{ filter: 'brightness(0) invert(1)', mixBlendMode: 'screen' }} />
+                <div key={uni.alt} className="bg-white/10 rounded-md p-1.5 hover:bg-white/15 transition-colors">
+                  <img src={uni.src} alt={uni.alt}
+                    className={`${uni.h} w-auto object-contain`} />
+                </div>
               ))}
             </div>
           </div>
