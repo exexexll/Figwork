@@ -28,7 +28,8 @@ export default function LandingPage() {
   const { getToken } = useAuth();
   const router = useRouter();
   const [input, setInput] = useState('');
-  const [presetIdx] = useState(() => Math.floor(Math.random() * PRESETS.length));
+  const [presetIdx, setPresetIdx] = useState(() => Math.floor(Math.random() * PRESETS.length));
+  const [presetOpacity, setPresetOpacity] = useState(1);
   const [typingText, setTypingText] = useState('');
   const [isTyping, setIsTyping] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -95,6 +96,19 @@ export default function LandingPage() {
     return () => clearInterval(interval);
   }, [input]);
 
+  // Subtle preset crossfade — barely noticeable, every 6s
+  useEffect(() => {
+    if (input) return; // stop when user is typing
+    const interval = setInterval(() => {
+      setPresetOpacity(0);
+      setTimeout(() => {
+        setPresetIdx(prev => (prev + 1) % PRESETS.length);
+        setPresetOpacity(1);
+      }, 800);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [input]);
+
   function handleSubmit() {
     if (!input.trim()) return;
     // Store the prompt so the dashboard can use it
@@ -152,10 +166,24 @@ export default function LandingPage() {
           </h1>
 
           {/* Subtitle */}
-          <p className="text-center text-lg md:text-xl text-white/50 mb-10">
+          <p className="text-center text-lg md:text-xl text-white/50 mb-6">
             <span className="text-white font-medium">We manage human intelligence</span>{' '}
-            to {PRESETS[presetIdx]}
+            to <span className="transition-opacity duration-700" style={{ opacity: presetOpacity }}>{PRESETS[presetIdx]}</span>
           </p>
+
+          {/* University badges */}
+          <div className="flex items-center justify-center gap-6 md:gap-8 mb-10">
+            <span className="text-[11px] text-white/25 hidden sm:block">200,000+ contractors from</span>
+            {[
+              { src: '/cal.png', alt: 'UC Berkeley' },
+              { src: '/ucsd.webp', alt: 'UC San Diego' },
+              { src: '/usc.png', alt: 'USC' },
+              { src: '/mit.png', alt: 'MIT' },
+            ].map((uni) => (
+              <img key={uni.alt} src={uni.src} alt={uni.alt}
+                className="h-6 md:h-7 w-auto object-contain brightness-0 invert opacity-30 hover:opacity-50 transition-opacity" />
+            ))}
+          </div>
 
           {/* Input box */}
           <div className="w-full max-w-2xl">
