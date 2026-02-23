@@ -144,7 +144,7 @@ export default function LandingPage() {
         <main className="flex-1 flex flex-col items-center justify-center px-6 -mt-16">
           {/* Title */}
           <h1 className="text-center text-[clamp(2.5rem,5.5vw,4.5rem)] font-bold text-white leading-[1.1] tracking-tight mb-5">
-            Make things that&apos;re possible
+            Make things <span className="line-through decoration-2 decoration-white/50">that&apos;re</span> possible
           </h1>
 
           {/* Subtitle */}
