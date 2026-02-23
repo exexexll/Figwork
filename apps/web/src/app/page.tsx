@@ -129,14 +129,13 @@ export default function LandingPage() {
             <span className="text-base font-semibold text-white/90">figwork</span>
           </div>
           <div className="flex items-center gap-4">
-            <button onClick={() => { localStorage.setItem('figwork_role', 'student'); router.push('/sign-up'); }}
-              className="text-sm text-white/40 hover:text-white/70 transition-colors cursor-pointer">
+            <Link href="/become-contractor" className="text-sm text-white/40 hover:text-white/70 transition-colors">
               Find jobs?
-            </button>
-            <button onClick={() => { localStorage.setItem('figwork_role', 'company'); router.push('/sign-up'); }}
-              className="text-sm font-medium text-white bg-white/10 hover:bg-white/15 border border-white/20 px-4 py-1.5 rounded-lg transition-all cursor-pointer">
+            </Link>
+            <Link href="/for-business"
+              className="text-sm font-medium text-white bg-white/10 hover:bg-white/15 border border-white/20 px-4 py-1.5 rounded-lg transition-all">
               Business
-            </button>
+            </Link>
           </div>
         </header>
 
