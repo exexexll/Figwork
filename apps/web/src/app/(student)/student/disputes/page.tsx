@@ -107,17 +107,17 @@ export default function StudentDisputesPage() {
   function getStatusColor(status: string) {
     switch (status) {
       case 'filed':
-        return 'bg-amber-50 text-amber-700 border-amber-200';
+        return 'bg-[#f0f0ff] text-[#a2a3fc] border-[#e0e0f0]';
       case 'under_review':
-        return 'bg-blue-50 text-blue-700 border-blue-200';
+        return 'bg-[#f0f0ff] text-[#7b7cee] border-[#e0e0f0]';
       case 'resolved_student':
-        return 'bg-green-50 text-green-700 border-green-200';
+        return 'bg-[#f0f0ff] text-[#a2a3fc] border-[#e0e0f0]';
       case 'resolved_company':
-        return 'bg-red-50 text-red-700 border-red-200';
+        return 'bg-[#f5f5f5] text-[#6b6b80] border-[#e0e0e8]';
       case 'partial':
-        return 'bg-violet-50 text-violet-700 border-violet-200';
+        return 'bg-[#f5f5f8] text-[#6b6b80] border-[#e0e0e8]';
       default:
-        return 'bg-gray-50 text-gray-700 border-gray-200';
+        return 'bg-[#f5f5f5] text-[#6b6b80] border-[#e0e0e8]';
     }
   }
 

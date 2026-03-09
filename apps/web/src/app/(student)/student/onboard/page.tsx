@@ -487,7 +487,7 @@ export default function StudentOnboardingPage() {
             <span className="text-xs text-[#a0a0b0]">&middot; Optional</span>
           )}
           {currentStepConfig?.completed && (
-            <span className="text-xs text-green-600 flex items-center gap-1">
+            <span className="text-xs text-[#a2a3fc] flex items-center gap-1">
               <Check className="w-3 h-3" /> Complete
             </span>
           )}
@@ -495,7 +495,7 @@ export default function StudentOnboardingPage() {
 
         {/* Error */}
         {error && (
-          <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center justify-between">
+          <div className="mb-6 p-3 bg-[#f0f0ff] border border-[#e0e0f0] rounded-lg text-sm text-[#6b6b80] flex items-center justify-between">
             {error}
             <button onClick={() => setError(null)}>
               <X className="w-4 h-4" />
@@ -716,7 +716,7 @@ export default function StudentOnboardingPage() {
                           }))
                         }
                       >
-                        <X className="w-4 h-4 text-[#a0a0b0] hover:text-red-500" />
+                        <X className="w-4 h-4 text-[#a0a0b0] hover:text-[#1f1f2e]" />
                       </button>
                     </div>
                   ))}
@@ -781,7 +781,7 @@ export default function StudentOnboardingPage() {
 
             {/* Scroll indicator */}
             {!state.agreementScrolled && (
-              <div className="flex items-center gap-2 mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+              <div className="flex items-center gap-2 mb-4 p-3 bg-[#f5f5f8] border border-[#e0e0e8] rounded-lg text-xs text-[#6b6b80]">
                 <ArrowLeft className="w-3.5 h-3.5 rotate-[-90deg]" />
                 Please scroll to the bottom to read the full agreement
               </div>

@@ -37,7 +37,7 @@ function fmt(text: string): React.ReactNode[] {
     if (w.idx > 0) parts.push(remaining.slice(0, w.idx));
 
     if (w.type === 'mdlink') {
-      parts.push(<a key={key++} href={w.match[2]} target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:text-violet-800 underline underline-offset-2">{w.match[1]}</a>);
+      parts.push(<a key={key++} href={w.match[2]} target="_blank" rel="noopener noreferrer" className="text-[#a2a3fc] hover:text-[#7b7cee] underline underline-offset-2">{w.match[1]}</a>);
     } else if (w.type === 'bold') {
       parts.push(<strong key={key++}>{w.match[1]}</strong>);
     } else {
@@ -45,7 +45,7 @@ function fmt(text: string): React.ReactNode[] {
       const tail = w.match[0].slice(clean.length);
       let label = clean;
       try { const u = new URL(clean); label = u.hostname.replace(/^www\./, '') + (u.pathname !== '/' ? u.pathname : ''); } catch {}
-      parts.push(<a key={key++} href={clean} target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:text-violet-800 underline underline-offset-2">{label}</a>);
+      parts.push(<a key={key++} href={clean} target="_blank" rel="noopener noreferrer" className="text-[#a2a3fc] hover:text-[#7b7cee] underline underline-offset-2">{label}</a>);
       if (tail) parts.push(tail);
     }
 
@@ -222,7 +222,7 @@ export default function ExecutionOnboardPage() {
                     <ul className="space-y-2">
                       {(block.content?.items || []).map((item: string, j: number) => (
                         <li key={j} className="flex items-start gap-2 text-sm text-slate-600">
-                          <CheckCircle className="w-4 h-4 text-violet-500 mt-0.5 flex-shrink-0" />
+                          <CheckCircle className="w-4 h-4 text-[#a2a3fc] mt-0.5 flex-shrink-0" />
                           {fmt(item)}
                         </li>
                       ))}
@@ -230,7 +230,7 @@ export default function ExecutionOnboardPage() {
                   </div>
                 )}
                 {block.type === 'cta' && (
-                  <div className="rounded-xl p-6 text-center bg-violet-50">
+                  <div className="rounded-xl p-6 text-center bg-[#f0f0ff]">
                     <h3 className="text-lg font-semibold text-slate-900 mb-1">{fmt(block.content?.heading || '')}</h3>
                     <p className="text-sm text-slate-500">{fmt(block.content?.body || '')}</p>
                   </div>
@@ -273,7 +273,7 @@ export default function ExecutionOnboardPage() {
                   <div key={contract.id} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
                     <div className="flex items-center gap-2">
                       {isSigned ? (
-                        <CheckCircle className="w-4 h-4 text-green-500" />
+                        <CheckCircle className="w-4 h-4 text-[#a2a3fc]" />
                       ) : (
                         <FileText className="w-4 h-4 text-slate-400" />
                       )}
@@ -366,7 +366,7 @@ export default function ExecutionOnboardPage() {
         {/* Proceed button */}
         <div className="pt-4">
           {!canProceed && (
-            <p className="text-xs text-amber-600 mb-2 flex items-center gap-1">
+            <p className="text-xs text-[#a2a3fc] mb-2 flex items-center gap-1">
               <AlertCircle className="w-3.5 h-3.5" />
               Sign all agreements to continue
             </p>

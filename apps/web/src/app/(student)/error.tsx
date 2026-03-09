@@ -22,7 +22,7 @@ export default function StudentError({
           className="w-14 h-14 rounded-full mx-auto mb-5 flex items-center justify-center"
           style={{ background: 'rgba(239, 68, 68, 0.08)' }}
         >
-          <AlertCircle className="w-7 h-7 text-red-500" />
+          <AlertCircle className="w-7 h-7 text-[#a2a3fc]" />
         </div>
 
         <h2 className="text-xl font-semibold text-[#1f1f2e] mb-2">Something went wrong</h2>
@@ -49,8 +49,8 @@ export default function StudentError({
         </div>
 
         {process.env.NODE_ENV === 'development' && (
-          <div className="mt-6 p-3 bg-red-50 rounded-lg text-left">
-            <p className="text-xs font-mono text-red-700 break-all">{error.message}</p>
+          <div className="mt-6 p-3 bg-[#f5f5f8] rounded-lg text-left">
+            <p className="text-xs font-mono text-[#6b6b80] break-all">{error.message}</p>
           </div>
         )}
       </div>

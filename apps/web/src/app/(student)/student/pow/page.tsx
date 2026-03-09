@@ -114,12 +114,12 @@ function PhotoPicker({
             </div>
           )}
           {capture.url && (
-            <div className="absolute top-2 right-2 bg-green-500 text-white p-1 rounded-full">
+            <div className="absolute top-2 right-2 bg-[#a2a3fc] text-white p-1 rounded-full">
               <CheckCircle className="w-3.5 h-3.5" />
             </div>
           )}
           {capture.error && (
-            <div className="absolute bottom-0 left-0 right-0 bg-red-500/90 text-white text-xs px-3 py-1.5">
+            <div className="absolute bottom-0 left-0 right-0 bg-[#1f1f2e]/90 text-white text-xs px-3 py-1.5">
               {capture.error}
             </div>
           )}
@@ -282,10 +282,10 @@ export default function POWPage() {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-3 mb-6">
         {[
-          { label: 'Pending', value: stats.pending || 0, color: 'text-amber-600' },
-          { label: 'Verified', value: stats.verified || 0, color: 'text-green-600' },
-          { label: 'Submitted', value: stats.submitted || 0, color: 'text-blue-600' },
-          { label: 'Failed', value: stats.failed || 0, color: 'text-red-600' },
+          { label: 'Pending', value: stats.pending || 0, color: 'text-[#a2a3fc]' },
+          { label: 'Verified', value: stats.verified || 0, color: 'text-[#a2a3fc]' },
+          { label: 'Submitted', value: stats.submitted || 0, color: 'text-[#7b7cee]' },
+          { label: 'Failed', value: stats.failed || 0, color: 'text-[#6b6b80]' },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -331,7 +331,7 @@ export default function POWPage() {
                 className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center"
                 style={{ background: 'var(--gradient-fig-subtle)' }}
               >
-                <CheckCircle className="w-8 h-8 text-green-500" />
+                <CheckCircle className="w-8 h-8 text-[#a2a3fc]" />
               </div>
               <h3 className="text-lg font-semibold text-[#1f1f2e]">All caught up!</h3>
               <p className="text-[#6b6b80] mt-1 text-sm">
@@ -356,7 +356,7 @@ export default function POWPage() {
                           Requested: {new Date(pow.requestedAt).toLocaleTimeString()}
                         </div>
                       </div>
-                      <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-xs font-medium border border-amber-200">
+                      <span className="px-3 py-1 bg-[#f0f0ff] text-[#a2a3fc] rounded-full text-xs font-medium border border-[#e0e0f0]">
                         Pending
                       </span>
                     </div>
@@ -489,14 +489,14 @@ export default function POWPage() {
                   <span
                     className={`px-3 py-1 rounded-full text-xs font-medium ${
                       pow.status === 'verified'
-                        ? 'bg-green-50 text-green-700 border border-green-200'
+                        ? 'bg-[#f0f0ff] text-[#a2a3fc] border border-[#e0e0f0]'
                         : pow.status === 'submitted'
-                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                          ? 'bg-[#f0f0ff] text-[#7b7cee] border border-[#e0e0f0]'
                           : pow.status === 'failed'
-                            ? 'bg-red-50 text-red-700 border border-red-200'
+                            ? 'bg-[#f5f5f5] text-[#6b6b80] border border-[#e0e0e8]'
                             : pow.status === 'expired'
-                              ? 'bg-slate-100 text-slate-500'
-                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                              ? 'bg-[#f5f5f5] text-[#a0a0b0]'
+                              : 'bg-[#f0f0ff] text-[#a2a3fc] border border-[#e0e0f0]'
                     }`}
                   >
                     {pow.status}

@@ -75,11 +75,11 @@ export default function EarningsPage() {
     return (
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="animate-pulse space-y-6">
-          <div className="h-40 bg-slate-200 rounded-2xl"></div>
+          <div className="h-40 bg-[#f5f5f8] rounded-2xl"></div>
           <div className="grid grid-cols-3 gap-4">
-            <div className="h-24 bg-slate-200 rounded-xl"></div>
-            <div className="h-24 bg-slate-200 rounded-xl"></div>
-            <div className="h-24 bg-slate-200 rounded-xl"></div>
+            <div className="h-24 bg-[#f5f5f8] rounded-xl"></div>
+            <div className="h-24 bg-[#f5f5f8] rounded-xl"></div>
+            <div className="h-24 bg-[#f5f5f8] rounded-xl"></div>
           </div>
         </div>
       </div>
@@ -89,31 +89,31 @@ export default function EarningsPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 sm:py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Earnings</h1>
-        <p className="text-slate-500 mt-1">Track your income and request payouts</p>
+        <h1 className="text-2xl font-bold text-[#1f1f2e]">Earnings</h1>
+        <p className="text-[#6b6b80] mt-1">Track your income and request payouts</p>
       </div>
 
       {/* Balance Card */}
-      <div className="bg-gradient-to-br from-green-600 to-emerald-700 rounded-2xl p-6 sm:p-8 mb-6 text-white">
-        <div className="text-green-100 text-sm mb-1">Available Balance</div>
+      <div className="bg-[#a2a3fc] rounded-2xl p-6 sm:p-8 mb-6 text-white">
+        <div className="text-white/70 text-sm mb-1">Available Balance</div>
         <div className="text-4xl font-bold mb-4">
           ${((balance?.pendingInCents || 0) / 100).toFixed(2)}
         </div>
         <div className="flex flex-wrap gap-4 mb-6">
           <div>
-            <div className="text-green-100 text-xs">Processing</div>
+            <div className="text-white/70 text-xs">Processing</div>
             <div className="font-semibold">${((balance?.processingInCents || 0) / 100).toFixed(2)}</div>
           </div>
           <div>
-            <div className="text-green-100 text-xs">This Month</div>
+            <div className="text-white/70 text-xs">This Month</div>
             <div className="font-semibold">${((balance?.monthlyEarnedInCents || 0) / 100).toFixed(2)}</div>
           </div>
           <div>
-            <div className="text-green-100 text-xs">All Time</div>
+            <div className="text-white/70 text-xs">All Time</div>
             <div className="font-semibold">${((balance?.totalEarnedInCents || 0) / 100).toFixed(2)}</div>
           </div>
           <div>
-            <div className="text-green-100 text-xs">Platform Fee</div>
+            <div className="text-white/70 text-xs">Platform Fee</div>
             <div className="font-semibold">{((balance?.platformFeePercent || 0) * 100).toFixed(0)}%</div>
           </div>
         </div>
@@ -122,10 +122,10 @@ export default function EarningsPage() {
           <button
             onClick={handleInstantPayout}
             disabled={requestingPayout}
-            className="flex items-center gap-2 px-6 py-3 bg-white text-green-700 rounded-xl font-semibold hover:bg-green-50 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-2 px-6 py-3 bg-white text-[#a2a3fc] rounded-xl font-semibold hover:bg-[#f0f0ff] disabled:opacity-50 transition-colors"
           >
             {requestingPayout ? (
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-700"></div>
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#a2a3fc]"></div>
             ) : (
               <>
                 <Zap className="w-4 h-4" />
@@ -136,7 +136,7 @@ export default function EarningsPage() {
         )}
 
         {balance?.stripeConnectStatus !== 'active' && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-green-500/20 rounded-lg text-sm">
+          <div className="flex items-center gap-2 px-4 py-2 bg-white/15 rounded-lg text-sm">
             <AlertCircle className="w-4 h-4" />
             Complete Stripe Connect setup to receive payouts
           </div>
@@ -144,41 +144,41 @@ export default function EarningsPage() {
       </div>
 
       {payoutResult && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 flex items-center justify-between">
-          <p className="text-sm text-blue-700">{payoutResult}</p>
-          <button onClick={() => setPayoutResult(null)} className="text-blue-500 hover:text-blue-700">×</button>
+        <div className="bg-[#f0f0ff] border border-[#e0e0f0] rounded-xl p-4 mb-6 flex items-center justify-between">
+          <p className="text-sm text-[#6b6b80]">{payoutResult}</p>
+          <button onClick={() => setPayoutResult(null)} className="text-[#a0a0b0] hover:text-[#1f1f2e]">×</button>
         </div>
       )}
 
       {/* Payout History */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100">
-          <h2 className="font-semibold text-slate-900">Payout History</h2>
+      <div className="bg-white rounded-xl border border-[#f0f0f5] overflow-hidden">
+        <div className="px-6 py-4 border-b border-[#f0f0f5]">
+          <h2 className="font-semibold text-[#1f1f2e]">Payout History</h2>
         </div>
         
         {payouts.length === 0 ? (
           <div className="p-8 text-center">
-            <DollarSign className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-            <p className="text-slate-500">No payouts yet. Complete tasks to earn!</p>
+            <DollarSign className="w-10 h-10 text-[#e0e0e8] mx-auto mb-3" />
+            <p className="text-[#6b6b80]">No payouts yet. Complete tasks to earn!</p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-[#f0f0f5]">
             {payouts.map(payout => (
               <div key={payout.id} className="px-6 py-4 flex items-center justify-between">
                 <div>
-                  <div className="font-medium text-slate-900">
+                  <div className="font-medium text-[#1f1f2e]">
                     ${(payout.amountInCents / 100).toFixed(2)}
                   </div>
-                  <div className="text-sm text-slate-500">
+                  <div className="text-sm text-[#6b6b80]">
                     {new Date(payout.createdAt).toLocaleDateString()}
                     {payout.executions && ` · ${payout.executions.length} task(s)`}
                   </div>
                 </div>
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  payout.status === 'completed' ? 'bg-green-100 text-green-700' :
-                  payout.status === 'processing' ? 'bg-blue-100 text-blue-700' :
-                  payout.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                  'bg-red-100 text-red-700'
+                  payout.status === 'completed' ? 'bg-[#f0f0ff] text-[#a2a3fc]' :
+                  payout.status === 'processing' ? 'bg-[#f0f0ff] text-[#7b7cee]' :
+                  payout.status === 'pending' ? 'bg-[#f5f5f5] text-[#6b6b80]' :
+                  'bg-[#f5f5f5] text-[#6b6b80]'
                 }`}>
                   {payout.status}
                 </span>
