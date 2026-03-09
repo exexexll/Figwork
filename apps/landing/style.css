@@ -1,0 +1,510 @@
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #1a1a18;
+  --text: #e8e4dc;
+  --dim: #9a968c;
+  --serif: 'EB Garamond', 'Georgia', serif;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--serif);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  min-height: 100dvh; /* dynamic viewport height for mobile */
+  display: flex;
+  flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+
+::selection {
+  background: rgba(232, 228, 220, 0.2);
+}
+
+/* ---------- FULL-SCREEN SUNSET ---------- */
+#sunsetCanvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  will-change: transform;  /* GPU layer — keeps scroll smooth */
+  z-index: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: -webkit-crisp-edges;
+}
+
+/* ---------- DARK OVERLAY — pitch black on left, visible on right ---------- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    rgba(10, 10, 8, 1) 0%,
+    rgba(10, 10, 8, 0.98) 30%,
+    rgba(15, 15, 12, 0.9) 45%,
+    rgba(20, 20, 18, 0.5) 65%,
+    rgba(20, 20, 18, 0.15) 80%,
+    transparent 100%
+  );
+}
+
+/* ── Thesis page: hide content until fonts load to prevent FOUT jump ── */
+.thesis-page main {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.thesis-page.fonts-ready main {
+  opacity: 1;
+}
+
+/* ── Thesis page: pitch black left, visible sunset right ── */
+.thesis-page .overlay {
+  background: linear-gradient(
+    105deg,
+    rgba(10, 10, 8, 1) 0%,
+    rgba(10, 10, 8, 0.98) 30%,
+    rgba(15, 15, 12, 0.92) 45%,
+    rgba(20, 20, 18, 0.55) 65%,
+    rgba(20, 20, 18, 0.15) 80%,
+    transparent 100%
+  );
+}
+
+/* ---------- TOP NAV ---------- */
+.top-nav {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 10;
+  padding: 28px clamp(20px, 5vw, 60px);
+}
+
+.nav-link {
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid transparent;
+  padding-bottom: 2px;
+  transition: color 0.3s, border-color 0.3s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nav-link:hover,
+.nav-link:active {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+/* ---------- MAIN ---------- */
+main {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  margin-top: -12vh; /* nudge content above the horizon line */
+}
+
+/* Content block on the left */
+.content-card {
+  max-width: 560px;
+  width: 100%;
+  margin-left: clamp(24px, 8vw, 120px);
+  margin-right: 24px;
+  padding: 48px 0;
+}
+
+/* ---------- THESIS PAGE LAYOUT ---------- */
+.thesis-page main {
+  align-items: flex-start;
+}
+
+.thesis-section {
+  padding: 100px 0 120px;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.thesis-section .content-card {
+  max-width: 620px;
+}
+
+/* Unified thesis heading */
+.thesis-heading {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 400;
+  font-style: italic;
+  line-height: 1.5;
+  margin-bottom: 36px;
+  color: var(--text);
+}
+
+.thesis-heading.closing {
+  margin-top: 48px;
+  margin-bottom: 0;
+  padding-top: 28px;
+  border-top: 1px solid rgba(232, 228, 220, 0.1);
+}
+
+/* All thesis body text */
+.thesis-text {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.75;
+  margin-bottom: 20px;
+  color: var(--text);
+}
+
+.thesis-text.dim {
+  color: var(--dim);
+}
+
+.thesis-text em {
+  font-style: italic;
+}
+
+/* ---------- TEXT (landing page) ---------- */
+.text {
+  font-size: 20px;
+  line-height: 1.65;
+  margin-bottom: 22px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  opacity: 0; /* starts invisible — decode animation reveals */
+}
+
+.text em {
+  font-style: italic;
+  font-weight: 500;
+}
+
+.text.secondary {
+  color: var(--dim);
+}
+
+/* ---------- DETAILS ---------- */
+.details {
+  margin: 6px 0 22px;
+  padding-left: 16px;
+  border-left: 1px solid transparent; /* hidden until animation done */
+  transition: border-color 0.5s ease;
+}
+
+.details.revealed,
+.thesis-page .details {
+  border-left-color: rgba(232, 228, 220, 0.12);
+}
+
+.detail {
+  font-size: 20px;
+  color: var(--dim);
+  margin-bottom: 0;
+}
+
+/* ---------- WORK IN PROGRESS ---------- */
+.wip-section {
+  margin: 28px 0 32px;
+}
+
+.wip-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wip-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  color: var(--dim);
+  opacity: 0;
+}
+
+.wip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(232, 228, 220, 0.25);
+  flex-shrink: 0;
+}
+
+/* ---------- LINK ---------- */
+.link {
+  display: inline-block;
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--text);
+  border-bottom: 1px solid transparent; /* hidden until animation done */
+  padding-bottom: 1px;
+  transition: border-color 0.5s ease;
+  opacity: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.link.revealed {
+  border-bottom-color: rgba(232, 228, 220, 0.3);
+}
+
+.link.revealed:hover,
+.link.revealed:active {
+  border-bottom-color: var(--text);
+}
+
+/* ---------- CHAR SPANS ---------- */
+.ch {
+  /* no display:inline-block — prevents layout differences */
+}
+
+/* ---------- WAITLIST ---------- */
+.waitlist-wrap {
+  margin-top: 28px;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.waitlist-wrap.visible {
+  opacity: 1;
+}
+
+.waitlist-form {
+  display: flex;
+  gap: 10px;
+  max-width: 360px;
+}
+
+.waitlist-input {
+  flex: 1;
+  min-width: 0; /* prevent flex overflow on mobile */
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0; /* remove iOS default rounding */
+  color: var(--text);
+  font-size: 16px; /* ≥16px prevents iOS auto-zoom */
+  font-family: var(--serif);
+  outline: none;
+  transition: border-color 0.3s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.waitlist-input::placeholder {
+  color: var(--dim);
+}
+
+.waitlist-input:focus {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.waitlist-btn {
+  padding: 10px 20px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-family: var(--serif);
+  cursor: pointer;
+  transition: border-color 0.3s;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.waitlist-btn:hover,
+.waitlist-btn:active {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.waitlist-success {
+  display: none;
+  font-size: 18px;
+  color: var(--dim);
+  font-style: italic;
+}
+
+.waitlist-success.show {
+  display: block;
+}
+
+/* ---------- FOOTER ---------- */
+footer {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  padding: 24px 0 36px;
+}
+
+/* ============================================
+   RESPONSIVE — Tablets (≤ 900px)
+   ============================================ */
+@media (max-width: 900px) {
+  .content-card {
+    max-width: 480px;
+  }
+  .thesis-section .content-card {
+    max-width: 520px;
+  }
+}
+
+/* ============================================
+   RESPONSIVE — Mobile (≤ 600px)
+   ============================================ */
+@media (max-width: 600px) {
+  .top-nav {
+    padding: 16px 20px;
+  }
+
+  .nav-link {
+    font-size: 13px;
+  }
+
+  main {
+    align-items: flex-start;
+    margin-top: 0; /* keep mobile layout untouched */
+  }
+
+  .content-card {
+    margin-left: 28px;
+    margin-right: 28px;
+    padding: 80px 0 36px; /* top padding to clear fixed nav */
+    max-width: 100%;
+  }
+
+  .thesis-section {
+    padding: 80px 0 60px;
+  }
+
+  .thesis-section .content-card {
+    max-width: 100%;
+    padding-top: 0;
+  }
+
+  .text,
+  .detail,
+  .link,
+  .thesis-text,
+  .thesis-heading {
+    font-size: 17px;
+  }
+
+  .thesis-heading.closing {
+    margin-top: 32px;
+    padding-top: 20px;
+  }
+
+  .thesis-text {
+    line-height: 1.65;
+    margin-bottom: 16px;
+  }
+
+  .thesis-heading {
+    margin-bottom: 24px;
+  }
+
+  .text {
+    line-height: 1.6;
+    margin-bottom: 18px;
+  }
+
+  .details {
+    margin: 4px 0 18px;
+    padding-left: 12px;
+  }
+
+  .waitlist-form {
+    flex-direction: column;
+    max-width: 100%;
+  }
+
+  .waitlist-btn {
+    padding: 12px 20px;
+  }
+
+  .waitlist-input {
+    padding: 12px 14px;
+  }
+
+  /* On mobile, overlay is stronger for readability */
+  .overlay {
+    background: linear-gradient(
+      180deg,
+      rgba(10, 10, 8, 0.97) 0%,
+      rgba(10, 10, 8, 0.9) 40%,
+      rgba(15, 15, 12, 0.6) 70%,
+      rgba(20, 20, 18, 0.3) 100%
+    );
+  }
+
+  .thesis-page .overlay {
+    background: linear-gradient(
+      180deg,
+      rgba(10, 10, 8, 0.97) 0%,
+      rgba(10, 10, 8, 0.92) 40%,
+      rgba(15, 15, 12, 0.65) 70%,
+      rgba(20, 20, 18, 0.35) 100%
+    );
+  }
+}
+
+/* ============================================
+   RESPONSIVE — Small phones (≤ 380px)
+   ============================================ */
+@media (max-width: 380px) {
+  .content-card {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+
+  .text,
+  .detail,
+  .link,
+  .thesis-text,
+  .thesis-heading {
+    font-size: 16px;
+  }
+}
+
+/* ============================================
+   PREFERS REDUCED MOTION
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  #sunsetCanvas { display: none; }
+  .overlay {
+    background: rgba(20, 20, 18, 0.95);
+  }
+  .text,
+  .link {
+    opacity: 1 !important;
+  }
+  .waitlist-wrap {
+    opacity: 1 !important;
+  }
+}

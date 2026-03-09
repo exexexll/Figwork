@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5" />
+  <title>Figwork — AI-Powered Human Intelligence Platform</title>
+  <meta name="description" content="Figwork is a human intelligence platform. Describe what you need in detail, and our AI agent takes care of the rest — sourcing the right people, managing the work, and making revisions to deliver quality results." />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Figwork — AI-Powered Human Intelligence Platform" />
+  <meta property="og:description" content="Describe what you need in detail. Our AI agent takes care of the rest — sourcing the right people, managing the work, and delivering quality results." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://figwork.info" />
+  <meta property="og:image" content="https://figwork.info/og-image.png" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Figwork — AI-Powered Human Intelligence Platform" />
+  <meta name="twitter:description" content="Describe what you need in detail. Our AI agent takes care of the rest." />
+  <meta name="twitter:image" content="https://figwork.info/og-image.png" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="iconfigwork.png" />
+  <link rel="apple-touch-icon" href="iconfigwork.png" />
+
+  <!-- Theme color for mobile browsers -->
+  <meta name="theme-color" content="#1a1a18" />
+
+  <!-- Preconnect for fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css?v=3" />
+</head>
+<body>
+
+  <!-- Full-screen animated pixel sunset -->
+  <canvas id="sunsetCanvas" aria-hidden="true"></canvas>
+
+  <!-- Dark overlay so text is readable -->
+  <div class="overlay" aria-hidden="true"></div>
+
+  <!-- Top-right nav -->
+  <nav class="top-nav" role="navigation" aria-label="Main navigation">
+    <a href="thesis.html" class="nav-link">Our Thesis</a>
+  </nav>
+
+  <main>
+    <div class="content-card">
+      <p class="text decode">
+        <em>Figwork</em> is a human intelligence platform that completes
+        and verifies work for businesses in the AI economy. We maintain a
+        pool of 200,000+ vetted talent in our network, with expertise
+        across all fields.
+      </p>
+
+      <div class="wip-section">
+        <p class="text secondary decode" style="margin-bottom: 14px;">Work in progress</p>
+        <div class="wip-items">
+          <div class="wip-item decode">
+            <span class="wip-dot"></span>
+            <span>v1 Figwork</span>
+          </div>
+          <div class="wip-item decode">
+            <span class="wip-dot"></span>
+            <span>Cascaded Multimodal Person-Job Model</span>
+          </div>
+          <div class="wip-item decode">
+            <span class="wip-dot"></span>
+            <span>Resolution oracle algo for work verification</span>
+          </div>
+        </div>
+      </div>
+
+      <a href="#waitlist" class="link decode">Join the waitlist &rarr;</a>
+
+      <div class="waitlist-wrap" id="waitlist">
+        <form class="waitlist-form" id="waitlistForm" action="#" method="POST">
+          <input type="email" placeholder="your@email.com" class="waitlist-input" id="emailInput" required autocomplete="email" inputmode="email" />
+          <button type="submit" class="waitlist-btn">Join &rarr;</button>
+        </form>
+        <p class="waitlist-success" id="waitlistSuccess" role="status">You're on the list.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer></footer>
+
+  <script src="script.js?v=3"></script>
+</body>
+</html>
