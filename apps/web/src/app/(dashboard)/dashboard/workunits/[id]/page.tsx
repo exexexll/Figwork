@@ -34,9 +34,11 @@ import {
   fundWorkUnitEscrow,
   getWorkUnitCandidates,
   reviewExecution,
+  getPublishStatus,
   WorkUnitDetailed,
   Execution,
   UpdateWorkUnitInput,
+  type PublishStatus,
 } from '@/lib/marketplace-api';
 import { getTemplates } from '@/lib/api';
 
@@ -54,6 +56,8 @@ export default function WorkUnitDetailPage() {
   const [reviewFeedback, setReviewFeedback] = useState('');
   const [improvements, setImprovements] = useState<any>(null);
   const [improvementsLoading, setImprovementsLoading] = useState(false);
+  const [publishStatus, setPublishStatus] = useState<PublishStatus | null>(null);
+  const [publishStatusLoading, setPublishStatusLoading] = useState(false);
 
   // Edit mode state for Task Settings
   const [editingSettings, setEditingSettings] = useState(false);
@@ -77,12 +81,14 @@ export default function WorkUnitDetailPage() {
       setLoading(true);
       const token = await getToken();
       if (!token) return;
-      const [wuData, candData] = await Promise.all([
+      const [wuData, candData, pubStatus] = await Promise.all([
         getWorkUnit(workUnitId, token),
         getWorkUnitCandidates(workUnitId, token).catch(() => []),
+        getPublishStatus(workUnitId, token).catch(() => null),
       ]);
       setWorkUnit(wuData);
       setCandidates(candData);
+      setPublishStatus(pubStatus);
     } catch (err) {
       console.error('Failed to load work unit:', err);
     } finally {
@@ -233,13 +239,21 @@ export default function WorkUnitDetailPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 sm:py-8">
-      <Link
-        href="/dashboard/workunits"
-        className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 mb-6"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Work Units
-      </Link>
+      <div className="flex items-center justify-between mb-6">
+        <Link
+          href="/dashboard/workunits"
+          className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Work Units
+        </Link>
+        <Link
+          href="/dashboard/workunits/workflow"
+          className="text-xs text-slate-500 hover:text-slate-700 px-3 py-1.5 border border-slate-200 rounded-lg"
+        >
+          Workflow View
+        </Link>
+      </div>
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 flex items-center gap-3">
@@ -256,13 +270,7 @@ export default function WorkUnitDetailPage() {
             <h1 className="text-xl font-bold text-slate-900">{workUnit.title}</h1>
             <p className="text-sm text-slate-600 mt-2">{workUnit.spec}</p>
           </div>
-          <span className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap ${
-            workUnit.status === 'active' ? 'bg-green-100 text-green-700' :
-            workUnit.status === 'draft' ? 'bg-slate-100 text-slate-600' :
-            workUnit.status === 'paused' ? 'bg-yellow-100 text-yellow-700' :
-            workUnit.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-            'bg-red-100 text-red-700'
-          }`}>
+          <span className="px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap bg-slate-100 text-slate-700 capitalize">
             {workUnit.status}
           </span>
         </div>
@@ -282,9 +290,7 @@ export default function WorkUnitDetailPage() {
           </div>
           <div>
             <div className="text-xs text-slate-500">Escrow</div>
-            <div className={`font-semibold ${
-              workUnit.escrow?.status === 'funded' ? 'text-green-600' : 'text-orange-600'
-            }`}>
+            <div className="font-semibold text-slate-800 capitalize">
               {workUnit.escrow?.status || 'None'}
             </div>
           </div>
@@ -296,7 +302,7 @@ export default function WorkUnitDetailPage() {
             <button
               onClick={handleFundEscrow}
               disabled={actionLoading}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-900 disabled:opacity-50 transition-colors"
             >
               <DollarSign className="w-4 h-4" />
               Fund Escrow
@@ -306,7 +312,7 @@ export default function WorkUnitDetailPage() {
             <button
               onClick={() => handleStatusChange('active')}
               disabled={actionLoading}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-900 disabled:opacity-50 transition-colors"
             >
               <Play className="w-4 h-4" />
               Activate
@@ -316,7 +322,7 @@ export default function WorkUnitDetailPage() {
             <button
               onClick={() => handleStatusChange('paused')}
               disabled={actionLoading}
-              className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-700 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-200 disabled:opacity-50 transition-colors"
             >
               <Pause className="w-4 h-4" />
               Pause
@@ -326,7 +332,7 @@ export default function WorkUnitDetailPage() {
             <button
               onClick={() => handleStatusChange('active')}
               disabled={actionLoading}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-900 disabled:opacity-50 transition-colors"
             >
               <Play className="w-4 h-4" />
               Resume
@@ -334,6 +340,126 @@ export default function WorkUnitDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Publishing */}
+      {(workUnit.scheduledPublishAt || workUnit.publishConditions || (publishStatus && publishStatus.dependentWorkUnits?.length > 0)) && (
+        <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-slate-900">Publishing</h2>
+            <div className="flex items-center gap-3">
+              {workUnit.status === 'draft' && (workUnit.scheduledPublishAt || workUnit.publishConditions) && (
+                <button
+                  onClick={async () => {
+                    try {
+                      setActionLoading(true);
+                      const token = await getToken();
+                      if (!token) return;
+                      await updateWorkUnit(workUnitId, { scheduledPublishAt: null, publishConditions: null }, token);
+                      await loadData();
+                    } catch (err: any) {
+                      setError(err?.message || 'Failed to clear');
+                    } finally { setActionLoading(false); }
+                  }}
+                  disabled={actionLoading}
+                  className="text-xs text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                onClick={async () => {
+                  setPublishStatusLoading(true);
+                  try {
+                    const token = await getToken();
+                    if (token) setPublishStatus(await getPublishStatus(workUnitId, token));
+                  } catch {} finally { setPublishStatusLoading(false); }
+                }}
+                className="text-xs text-slate-400 hover:text-slate-600"
+                disabled={publishStatusLoading}
+              >
+                {publishStatusLoading ? '...' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+
+          {publishStatus ? (
+            <div className="space-y-4">
+              {/* Scheduled time */}
+              {publishStatus.scheduledPublishAt && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-500">Scheduled</span>
+                  <span className="text-slate-800 font-medium">
+                    {new Date(publishStatus.scheduledPublishAt).toLocaleString()}
+                    {new Date(publishStatus.scheduledPublishAt) > new Date()
+                      ? ` (${Math.ceil((new Date(publishStatus.scheduledPublishAt).getTime() - Date.now()) / 60000)}m)`
+                      : ' (overdue)'}
+                  </span>
+                </div>
+              )}
+
+              {/* Dependencies */}
+              {publishStatus.conditions && publishStatus.dependencyStatuses.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-slate-500">
+                      Dependencies · {publishStatus.conditions.logic} · {publishStatus.dependencyStatuses.filter((d: any) => d.met).length}/{publishStatus.dependencyStatuses.length} met
+                    </span>
+                  </div>
+                  <div className="h-1 bg-slate-100 rounded-full mb-3 overflow-hidden">
+                    <div
+                      className="h-full bg-slate-400 rounded-full transition-all duration-500"
+                      style={{
+                        width: `${publishStatus.dependencyStatuses.length > 0
+                          ? (publishStatus.dependencyStatuses.filter((d: any) => d.met).length / publishStatus.dependencyStatuses.length) * 100
+                          : 0}%`
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    {publishStatus.dependencyStatuses.map((dep: any, idx: number) => (
+                      <div key={idx} className="flex items-center justify-between py-1.5 text-xs">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-slate-400 flex-shrink-0">{dep.met ? '✓' : '○'}</span>
+                          <span className="text-slate-700 truncate">{dep.workUnitTitle}</span>
+                        </div>
+                        <span className="text-slate-400 flex-shrink-0 ml-2">{dep.condition}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Status */}
+              <div className="flex items-center justify-between text-sm pt-2 border-t border-slate-100">
+                <span className="text-slate-500">Ready</span>
+                <span className="text-slate-800 font-medium">
+                  {publishStatus.canPublish ? 'Yes' : 'No'}
+                </span>
+              </div>
+              {publishStatus.blockingReason && (
+                <p className="text-xs text-slate-400">{publishStatus.blockingReason}</p>
+              )}
+
+              {/* Reverse deps */}
+              {publishStatus.dependentWorkUnits?.length > 0 && (
+                <div className="pt-2 border-t border-slate-100">
+                  <span className="text-xs text-slate-400 block mb-1.5">Depended on by</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {publishStatus.dependentWorkUnits.map((d: any) => (
+                      <Link key={d.id} href={`/dashboard/workunits/${d.id}`}
+                        className="text-xs text-slate-600 hover:text-slate-900 underline underline-offset-2">
+                        {d.title}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-xs text-slate-400">Loading...</div>
+          )}
+        </div>
+      )}
 
       {/* Task Configuration */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -380,7 +506,7 @@ export default function WorkUnitDetailPage() {
                 <button
                   onClick={saveSettings}
                   disabled={settingsSaving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-900 disabled:opacity-50 transition-colors"
                 >
                   {settingsSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
                   Save
@@ -401,29 +527,17 @@ export default function WorkUnitDetailPage() {
             /* ── View Mode ── */
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between py-2 border-b border-slate-50">
-                <span className="text-slate-500">Assignment Mode</span>
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
-                  (workUnit as any).assignmentMode === 'manual'
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'bg-green-100 text-green-700'
-                }`}>
-                  {(workUnit as any).assignmentMode === 'manual' ? (
-                    <><Users className="w-3 h-3" /> Manual Review</>
-                  ) : (
-                    <><UserCheck className="w-3 h-3" /> Auto-Match</>
-                  )}
+                <span className="text-slate-500">Assignment</span>
+                <span className="text-sm text-slate-800 font-medium">
+                  {(workUnit as any).assignmentMode === 'manual' ? 'Manual Review' : 'Auto-Match'}
                 </span>
               </div>
 
               <div className="flex items-center justify-between py-2 border-b border-slate-50">
-                <span className="text-slate-500">Screening Interview</span>
-                {workUnit.infoCollectionTemplateId ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-medium">
-                    <Mic className="w-3 h-3" /> Required
-                  </span>
-                ) : (
-                  <span className="text-slate-400 text-xs">Not required</span>
-                )}
+                <span className="text-slate-500">Screening</span>
+                <span className="text-sm text-slate-800 font-medium">
+                  {workUnit.infoCollectionTemplateId ? 'Required' : 'None'}
+                </span>
               </div>
 
               <div className="py-2 border-b border-slate-50">
@@ -431,11 +545,11 @@ export default function WorkUnitDetailPage() {
                 {(workUnit as any).requiredSkills?.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {((workUnit as any).requiredSkills as string[]).map((s: string) => (
-                      <span key={s} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">{s}</span>
+                      <span key={s} className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">{s}</span>
                     ))}
                   </div>
                 ) : (
-                  <span className="text-slate-400 text-xs">None specified</span>
+                  <span className="text-slate-400 text-xs">None</span>
                 )}
               </div>
 
@@ -444,25 +558,21 @@ export default function WorkUnitDetailPage() {
                 {(workUnit as any).deliverableFormat?.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {((workUnit as any).deliverableFormat as string[]).map((f: string) => (
-                      <span key={f} className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">
-                        <CheckCircle className="w-3 h-3 text-green-500" />{f}
-                      </span>
+                      <span key={f} className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">{f}</span>
                     ))}
                   </div>
                 ) : (
-                  <span className="text-slate-400 text-xs">Any format</span>
+                  <span className="text-slate-400 text-xs">Any</span>
                 )}
               </div>
 
               <div className="flex items-center justify-between py-2 border-b border-slate-50">
                 <span className="text-slate-500">Min Tier</span>
-                <span className="font-medium text-slate-700 capitalize">{workUnit.minTier}</span>
+                <span className="text-sm text-slate-800 font-medium capitalize">{workUnit.minTier}</span>
               </div>
               <div className="flex items-center justify-between py-2">
                 <span className="text-slate-500">Complexity</span>
-                <span className="font-medium text-slate-700">
-                  {workUnit.complexityScore}/5 — {['Simple', 'Easy', 'Medium', 'Hard', 'Expert'][workUnit.complexityScore - 1]}
-                </span>
+                <span className="text-sm text-slate-800 font-medium">{workUnit.complexityScore}/5</span>
               </div>
             </div>
           ) : (
@@ -477,7 +587,7 @@ export default function WorkUnitDetailPage() {
                     onClick={() => setEditAssignmentMode('auto')}
                     className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
                       editAssignmentMode === 'auto'
-                        ? 'border-green-300 bg-green-50 text-green-700'
+                        ? 'border-slate-400 bg-slate-50 text-slate-800'
                         : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
                     }`}
                   >
@@ -488,7 +598,7 @@ export default function WorkUnitDetailPage() {
                     onClick={() => setEditAssignmentMode('manual')}
                     className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
                       editAssignmentMode === 'manual'
-                        ? 'border-blue-300 bg-blue-50 text-blue-700'
+                        ? 'border-slate-400 bg-slate-50 text-slate-800'
                         : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
                     }`}
                   >
@@ -531,7 +641,7 @@ export default function WorkUnitDetailPage() {
                       onClick={() => setEditMinTier(tier)}
                       className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium capitalize transition-colors ${
                         editMinTier === tier
-                          ? 'border-blue-300 bg-blue-50 text-blue-700'
+                          ? 'border-slate-400 bg-slate-50 text-slate-800'
                           : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
                       }`}
                     >

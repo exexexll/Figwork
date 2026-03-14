@@ -13,6 +13,7 @@ import {
   Settings,
   Shield,
   FileText,
+  DollarSign,
   Menu,
   X,
 } from 'lucide-react';
@@ -24,6 +25,7 @@ const navItems = [
   { href: '/admin', label: 'Overview', icon: LayoutDashboard },
   { href: '/admin/disputes', label: 'Disputes', icon: AlertTriangle },
   { href: '/admin/students', label: 'Students', icon: Users },
+  { href: '/admin/payouts', label: 'Payouts', icon: DollarSign },
   { href: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/admin/legal-onboarding', label: 'Legal Onboarding', icon: FileText },
   { href: '/admin/settings', label: 'Settings', icon: Settings },

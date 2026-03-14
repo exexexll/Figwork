@@ -467,9 +467,9 @@ export async function companyRoutes(fastify: FastifyInstance) {
         periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
     }
 
-    const workUnitStats = await db.workUnit.groupBy({
+    const workUnitStats = await (db.workUnit as any).groupBy({
       by: ['status'],
-      where: { companyId: company.id },
+      where: { companyId: company.id, archivedAt: null },
       _count: true,
     });
 
@@ -511,7 +511,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       period,
-      workUnits: Object.fromEntries(workUnitStats.map(s => [s.status, s._count])),
+      workUnits: Object.fromEntries(workUnitStats.map((s: any) => [s.status, s._count])),
       executions: Object.fromEntries(executionStats.map(s => [s.status, s._count])),
       quality: {
         averageScore: qualityMetrics._avg.qualityScore || 0,

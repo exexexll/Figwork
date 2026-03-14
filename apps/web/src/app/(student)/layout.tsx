@@ -16,6 +16,9 @@ import {
   ArrowRight,
   FolderOpen,
   Menu,
+  Sparkles,
+  BookOpen,
+  MessageSquare,
 } from 'lucide-react';
 import { NotificationBell } from '@/components/marketplace/NotificationBell';
 import { ToastProvider } from '@/components/ui/toast';
@@ -26,7 +29,9 @@ const ACCENT = '#a2a3fc';
 
 const navItems = [
   { href: '/student', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/student/messages', label: 'Messages', icon: MessageSquare },
   { href: '/student/tasks', label: 'Available Tasks', icon: Briefcase },
+  { href: '/student/quiz', label: 'Quiz', icon: BookOpen },
   { href: '/student/executions', label: 'My Work', icon: Clock },
   { href: '/student/earnings', label: 'Earnings', icon: DollarSign },
   { href: '/student/disputes', label: 'Disputes', icon: AlertTriangle },

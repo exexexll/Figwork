@@ -8,7 +8,20 @@ import {
   createCheckoutSession,
   getOrCreateCustomer,
   isStripeConfigured,
+  createTransfer,
 } from '../lib/stripe-service.js';
+
+const ADMIN_USER_IDS = process.env.ADMIN_USER_IDS?.split(',') || [];
+
+async function verifyAdmin(request: FastifyRequest, reply: FastifyReply): Promise<string | null> {
+  const authResult = await verifyClerkAuth(request, reply);
+  if (!authResult) return null;
+  if (!ADMIN_USER_IDS.includes(authResult.userId)) {
+    reply.status(403).send({ error: 'Admin access required' });
+    return null;
+  }
+  return authResult.userId;
+}
 
 export async function paymentRoutes(fastify: FastifyInstance) {
   // ====================
@@ -583,6 +596,132 @@ export async function paymentRoutes(fastify: FastifyInstance) {
   // ====================
   // ADMIN/INTERNAL ROUTES
   // ====================
+
+  fastify.get('/admin/payouts', async (request, reply) => {
+    const adminId = await verifyAdmin(request, reply);
+    if (!adminId) return;
+
+    const { status, limit: lStr = '50', offset: oStr = '0' } = request.query as {
+      status?: string; limit?: string; offset?: string;
+    };
+    const take = Math.min(Math.max(1, parseInt(lStr) || 50), 100);
+    const skip = Math.max(0, parseInt(oStr) || 0);
+
+    const payouts = await db.payout.findMany({
+      where: { ...(status ? { status } : {}) },
+      include: {
+        student: { select: { id: true, name: true, email: true, stripeConnectStatus: true } },
+        executions: { include: { workUnit: { select: { title: true } } } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
+      skip,
+    });
+
+    const summary = await db.payout.aggregate({
+      where: { ...(status ? { status } : {}) },
+      _sum: { amountInCents: true },
+      _count: true,
+    });
+
+    return reply.send({
+      payouts,
+      total: summary._count,
+      totalAmountInCents: summary._sum.amountInCents || 0,
+    });
+  });
+
+  fastify.post<{ Params: { payoutId: string } }>('/admin/payouts/:payoutId/send', async (request, reply) => {
+    const adminId = await verifyAdmin(request, reply);
+    if (!adminId) return;
+
+    const { payoutId } = request.params;
+    const payout = await db.payout.findUnique({
+      where: { id: payoutId },
+      include: {
+        student: { select: { id: true, name: true, stripeConnectId: true, stripeConnectStatus: true, clerkId: true } },
+        executions: true,
+      },
+    });
+    if (!payout) return badRequest(reply, 'Payout not found');
+    if (payout.status !== 'pending' && payout.status !== 'processing') return badRequest(reply, 'Payout not sendable');
+    if (!payout.student.stripeConnectId || payout.student.stripeConnectStatus !== 'active') {
+      return badRequest(reply, 'Student Stripe Connect not active');
+    }
+
+    const transfer = await createTransfer({
+      amountInCents: payout.amountInCents,
+      destinationAccountId: payout.student.stripeConnectId,
+      payoutId: payout.id,
+      description: `Figwork payout for ${payout.student.name || 'student'}`,
+    });
+
+    const updated = await db.payout.update({
+      where: { id: payout.id },
+      data: {
+        status: transfer.status === 'succeeded' ? 'completed' : 'failed',
+        stripeTransferId: transfer.transferId || null,
+        processedAt: transfer.status === 'succeeded' ? new Date() : null,
+        failureReason: transfer.status === 'succeeded' ? null : 'Stripe transfer failed',
+      },
+    });
+
+    await db.notification.create({
+      data: {
+        userId: payout.student.clerkId,
+        userType: 'student',
+        type: 'payout_processed',
+        title: transfer.status === 'succeeded' ? 'Payout Sent' : 'Payout Failed',
+        body: transfer.status === 'succeeded'
+          ? `Your payout of $${(payout.amountInCents / 100).toFixed(2)} has been sent.`
+          : `Your payout could not be sent yet.`,
+        channels: ['in_app'],
+        data: { payoutId: payout.id, adminId },
+      },
+    });
+
+    return reply.send({ payout: updated, transfer });
+  });
+
+  fastify.post<{ Params: { payoutId: string } }>('/admin/payouts/:payoutId/cancel', async (request, reply) => {
+    const adminId = await verifyAdmin(request, reply);
+    if (!adminId) return;
+    const { payoutId } = request.params;
+    const payout = await db.payout.findUnique({ where: { id: payoutId }, include: { student: true } });
+    if (!payout) return badRequest(reply, 'Payout not found');
+    if (payout.status !== 'pending' && payout.status !== 'processing') return badRequest(reply, 'Payout not cancellable');
+
+    const updated = await db.payout.update({
+      where: { id: payoutId },
+      data: { status: 'failed', failureReason: 'Cancelled by admin' },
+    });
+    await db.notification.create({
+      data: {
+        userId: payout.student.clerkId,
+        userType: 'student',
+        type: 'payout_cancelled',
+        title: 'Payout Cancelled',
+        body: 'A pending payout was cancelled and will need to be reissued.',
+        channels: ['in_app'],
+        data: { payoutId, adminId },
+      },
+    });
+    return reply.send({ payout: updated });
+  });
+
+  fastify.post<{ Params: { payoutId: string } }>('/admin/payouts/:payoutId/retry', async (request, reply) => {
+    const adminId = await verifyAdmin(request, reply);
+    if (!adminId) return;
+    const { payoutId } = request.params;
+    const payout = await db.payout.findUnique({ where: { id: payoutId } });
+    if (!payout) return badRequest(reply, 'Payout not found');
+    if (payout.status !== 'failed') return badRequest(reply, 'Only failed payouts can be retried');
+    const updated = await db.payout.update({
+      where: { id: payoutId },
+      data: { status: 'pending', failureReason: null, stripeTransferId: null, processedAt: null },
+    });
+    return reply.send({ payout: updated, retried: true });
+  });
 
   fastify.post('/process-payouts', async (request, reply) => {
     const pendingPayouts = await db.payout.findMany({

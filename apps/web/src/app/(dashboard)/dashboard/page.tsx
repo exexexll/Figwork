@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
-import { Send, Plus, ChevronDown, X, GripVertical, Check, Paperclip, FileText, Globe, Loader2, Sparkles, Calculator, Search, FileCheck, Eye, Save, Trash2, Type, Image, CheckSquare, AlertCircle, MoveUp, MoveDown, Palette } from 'lucide-react';
+import { useMarketplaceEvent, MARKETPLACE_EVENTS, marketplaceSocket } from '@/lib/marketplace-socket';
+import { Send, Plus, ChevronDown, X, GripVertical, Check, Paperclip, FileText, Globe, Loader2, Sparkles, Calculator, Search, FileCheck, Eye, Save, Trash2, Type, Image, CheckSquare, AlertCircle, MoveUp, MoveDown, Palette, Clock, CheckCircle2 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -14,6 +15,14 @@ interface Message {
   toolResult?: string;
   statusLabel?: string;
   statusPhase?: 'start' | 'done';
+}
+
+interface ToolStatusGroup {
+  toolName: string;
+  label: string;
+  count: number;
+  phase: 'start' | 'done';
+  lastUpdate: number;
 }
 
 interface Conversation {
@@ -111,6 +120,9 @@ function formatText(text: string): React.ReactNode[] {
   return parts;
 }
 
+// Task-related tools that should show inline, not in header
+const TASK_RELATED_TOOLS = ['create_work_unit', 'update_work_unit', 'set_onboarding', 'create_contract', 'update_contract', 'activate_contract'];
+
 export default function DashboardPage() {
   const { getToken } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -119,11 +131,19 @@ export default function DashboardPage() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [showConvList, setShowConvList] = useState(false);
+  const [toolStatusGroups, setToolStatusGroups] = useState<Map<string, ToolStatusGroup>>(new Map());
+  const [planningProgress, setPlanningProgress] = useState<{ current: number; total: number; stage: string; detail?: string; subCurrent?: number; subTotal?: number } | null>(null);
 
   // Panel state
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(480);
-  const [panelTab, setPanelTab] = useState<'overview' | 'execution' | 'financial' | 'legal' | 'onboard'>('overview');
+  const [panelTab, setPanelTab] = useState<'overview' | 'execution' | 'financial' | 'legal' | 'onboard' | 'messages'>('overview');
+  const [execMessages, setExecMessages] = useState<any[]>([]);
+  const [execMsgInput, setExecMsgInput] = useState('');
+  const [execMsgLoading, setExecMsgLoading] = useState(false);
+  const [execMsgUnread, setExecMsgUnread] = useState(0);
+  const [execMsgAttachments, setExecMsgAttachments] = useState<Array<{ url: string; filename: string; mimetype: string; size: number }>>([]);
+  const [execMsgUploading, setExecMsgUploading] = useState(false);
   const [sideData, setSideData] = useState<any>(null);
   const [selectedWU, setSelectedWU] = useState<any>(null);
   const [interviewDetail, setInterviewDetail] = useState<any>(null);
@@ -150,17 +170,97 @@ export default function DashboardPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const resizing = useRef(false);
+  const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const streamAbortedRef = useRef(false);
+  const isUserLeavingRef = useRef(false);
+  const lastStreamingMessageRef = useRef<string>('');
 
   useEffect(() => { loadConversations(); loadPanel(); }, []);
-  // Auto-refresh panel every 30s to catch new applicants
+  
+  // Chat continuity: handle window/tab switching
+  // Stream continues when switching tabs/windows, only stops when explicitly leaving chat
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      // When window becomes visible again after switching tabs/windows, streaming continues
+      // We don't set isUserLeavingRef here - that's only for explicit chat actions
+      if (!document.hidden && streaming && streamReaderRef.current && !isUserLeavingRef.current) {
+        // Stream continues automatically - no action needed
+        // The reader will keep processing in the background
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      // Only stop stream when actually closing the tab/window
+      isUserLeavingRef.current = true;
+      if (streamReaderRef.current) {
+        streamReaderRef.current.cancel().catch(() => {});
+      }
+    };
+
+    // Note: visibilitychange fires when switching tabs/windows, but we DON'T stop the stream
+    // Only beforeunload (actual page close) stops it
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [streaming]);
+  
+  // Auto-refresh panel every 60s to catch new applicants (avoid 429s)
   useEffect(() => {
     const interval = setInterval(() => {
-      loadPanel();
-      if (selectedWU) selectWU(selectedWU.id, false);
-    }, 30000);
+      if (!document.hidden) { // Only refresh when tab is visible
+        loadPanel();
+        if (selectedWU) selectWU(selectedWU.id, false);
+      }
+    }, 60000);
     return () => clearInterval(interval);
   }, [selectedWU]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  // Real-time message updates via WebSocket
+  useMarketplaceEvent(MARKETPLACE_EVENTS.EXECUTION_MESSAGE_NEW, (data: any) => {
+    if (!selectedWU) return;
+    const activeExec = selectedWU.executions?.find((e: any) => !['cancelled', 'failed', 'approved'].includes(e.status));
+    if (activeExec && data.executionId === activeExec.id && data.message) {
+      const msg = data.message;
+      setExecMessages(prev => {
+        if (prev.some(m => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      });
+      // Update unread count if message is from student/AI
+      if (msg.senderType !== 'company') {
+        setExecMsgUnread(prev => prev + 1);
+        // Auto-mark as read if messages tab is open
+        if (panelTab === 'messages') {
+          getToken().then(token => {
+            if (token && activeExec) {
+              fetch(`${API_URL}/api/executions/${activeExec.id}/messages/read-all`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+              }).catch(() => {});
+            }
+          });
+        }
+      }
+    }
+  }, [selectedWU, panelTab]);
+
+  // Subscribe to execution room when messages tab is opened
+  useEffect(() => {
+    if (panelTab === 'messages' && selectedWU) {
+      const activeExec = selectedWU.executions?.find((e: any) => !['cancelled', 'failed', 'approved'].includes(e.status));
+      if (activeExec && marketplaceSocket.isConnected()) {
+        // Subscribe to execution room for real-time updates
+        (marketplaceSocket as any).socket?.emit('subscribe:execution', activeExec.id);
+        return () => {
+          (marketplaceSocket as any).socket?.emit('unsubscribe:execution', activeExec.id);
+        };
+      }
+    }
+  }, [panelTab, selectedWU]);
 
   // ── Data loading ──
 
@@ -173,6 +273,15 @@ export default function DashboardPage() {
   }
 
   async function loadConversation(id: string) {
+    // Mark that user is switching conversations (explicit action)
+    isUserLeavingRef.current = true;
+    // Abort any active stream
+    if (streamReaderRef.current) {
+      streamReaderRef.current.cancel().catch(() => {});
+      streamReaderRef.current = null;
+    }
+    setStreaming(false);
+    
     try {
       const t = await getToken(); if (!t) return;
       const r = await fetch(`${API_URL}/api/agent/conversations/${id}`, { headers: { Authorization: `Bearer ${t}` } });
@@ -187,6 +296,9 @@ export default function DashboardPage() {
       }
     } catch {}
     setShowConvList(false);
+    setToolStatusGroups(new Map());
+    setPlanningProgress(null);
+    isUserLeavingRef.current = false; // Reset for loaded conversation
   }
 
   async function loadPanel() {
@@ -476,6 +588,27 @@ export default function DashboardPage() {
     } catch {}
   }
 
+  async function loadExecMessages() {
+    if (!selectedWU) return;
+    const activeExec = selectedWU.executions?.find((e: any) => !['cancelled', 'failed', 'approved'].includes(e.status));
+    if (!activeExec) return;
+    try {
+      const t = await getToken(); if (!t) return;
+      const res = await fetch(`${API_URL}/api/executions/${activeExec.id}/messages`, { headers: { Authorization: `Bearer ${t}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setExecMessages(data.messages || []);
+        setExecMsgUnread(data.unreadCount || 0);
+        // Mark as read
+        if (data.unreadCount > 0) {
+          fetch(`${API_URL}/api/executions/${activeExec.id}/messages/read-all`, {
+            method: 'POST', headers: { Authorization: `Bearer ${t}` },
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+  }
+
   async function loadContracts() {
     try {
       const t = await getToken(); if (!t) return;
@@ -498,7 +631,24 @@ export default function DashboardPage() {
 
   // ── Chat ──
 
-  function startNew() { setConversationId(null); setMessages([]); setShowConvList(false); inputRef.current?.focus(); }
+  function startNew() { 
+    // Mark that user is explicitly leaving the current chat
+    isUserLeavingRef.current = true;
+    // Abort any active stream
+    if (streamReaderRef.current) {
+      streamReaderRef.current.cancel().catch(() => {});
+      streamReaderRef.current = null;
+    }
+    setConversationId(null); 
+    setMessages([]); 
+    setShowConvList(false); 
+    setToolStatusGroups(new Map());
+    setPlanningProgress(null);
+    setStreaming(false);
+    streamAbortedRef.current = false;
+    isUserLeavingRef.current = false; // Reset for new chat
+    inputRef.current?.focus(); 
+  }
 
   async function deleteConv(id: string) {
     try {
@@ -579,6 +729,8 @@ export default function DashboardPage() {
     setPastedImages([]);
     setSuggestions([]);
     setStreaming(true);
+    streamAbortedRef.current = false;
+    isUserLeavingRef.current = false;
     const aId = `a-${Date.now()}`;
     setMessages(prev => [...prev, { id: aId, role: 'assistant', content: '' }]);
 
@@ -591,10 +743,19 @@ export default function DashboardPage() {
       });
       const reader = res.body?.getReader();
       if (!reader) return;
+      
+      // Store reader reference for continuity
+      streamReaderRef.current = reader;
       const dec = new TextDecoder();
       let buf = '';
 
       while (true) {
+        // Check if user explicitly left
+        if (isUserLeavingRef.current) {
+          reader.cancel().catch(() => {});
+          break;
+        }
+        
         const { done, value } = await reader.read();
         if (done) break;
         buf += dec.decode(value, { stream: true });
@@ -608,19 +769,92 @@ export default function DashboardPage() {
             } else if (ev.type === 'thinking') {
               // Show chain-of-thought text as a thinking message
               setMessages(prev => [...prev, { id: `think-${Date.now()}-${Math.random()}`, role: 'status', content: null, statusLabel: ev.content, statusPhase: 'done', toolName: 'thinking' }]);
+            } else if (ev.type === 'planning_progress') {
+              // Granular progress from within planning tools (e.g., which contract is being drafted)
+              setPlanningProgress(prev => {
+                const base = prev || { current: 1, total: 5, stage: ev.stage };
+                return {
+                  ...base,
+                  stage: ev.stage || base.stage,
+                  detail: ev.detail,
+                  subCurrent: ev.current,
+                  subTotal: ev.total,
+                };
+              });
             } else if (ev.type === 'tool_status') {
-              const statusId = `status-${ev.name}-${Date.now()}`;
-              if (ev.phase === 'start') {
-                setMessages(prev => [...prev, { id: statusId, role: 'status', content: null, toolName: ev.name, statusLabel: ev.label, statusPhase: 'start' }]);
-              } else if (ev.phase === 'done') {
-                // Mark the last matching status as done
-                setMessages(prev => {
-                  const idx = [...prev].reverse().findIndex(m => m.role === 'status' && m.toolName === ev.name && m.statusPhase === 'start');
-                  if (idx === -1) return prev;
-                  const realIdx = prev.length - 1 - idx;
-                  return prev.map((m, i) => i === realIdx ? { ...m, statusPhase: 'done' } : m);
+              // Track planning progress first (exclude from toolStatusGroups)
+              const planningTools = ['plan_analyze', 'plan_decompose', 'plan_price', 'plan_legal', 'plan_execute'];
+              const isPlanningTool = planningTools.includes(ev.name);
+              
+              if (isPlanningTool) {
+                const stageNames: Record<string, string> = {
+                  plan_analyze: 'Analyzing',
+                  plan_decompose: 'Designing',
+                  plan_price: 'Pricing',
+                  plan_legal: 'Legal',
+                  plan_execute: 'Executing',
+                };
+                const stageIndex = planningTools.indexOf(ev.name);
+                if (ev.phase === 'start') {
+                  setPlanningProgress({ current: stageIndex + 1, total: planningTools.length, stage: stageNames[ev.name] });
+                } else if (ev.phase === 'done') {
+                  if (stageIndex === planningTools.length - 1) {
+                    // Last stage done, clear after delay
+                    setTimeout(() => setPlanningProgress(null), 2000);
+                  } else {
+                    // Intermediate stage done — show as completed, update label to "Done"
+                    setPlanningProgress(prev => prev ? { ...prev, stage: `${stageNames[ev.name]} ✓` } : null);
+                  }
+                }
+              } else {
+                // Group repeated tool calls instead of showing each one (excluding planning tools)
+                setToolStatusGroups(prev => {
+                  const newMap = new Map(prev);
+                  const key = ev.name;
+                  const existing = newMap.get(key);
+                  
+                  if (ev.phase === 'start') {
+                    if (existing) {
+                      // Increment count for repeated tool calls
+                      newMap.set(key, {
+                        ...existing,
+                        count: existing.count + 1,
+                        phase: 'start',
+                        lastUpdate: Date.now(),
+                      });
+                    } else {
+                      // New tool call
+                      newMap.set(key, {
+                        toolName: ev.name,
+                        label: ev.label,
+                        count: 1,
+                        phase: 'start',
+                        lastUpdate: Date.now(),
+                      });
+                    }
+                  } else if (ev.phase === 'done') {
+                    if (existing) {
+                      // Mark as done but keep count
+                      newMap.set(key, {
+                        ...existing,
+                        phase: 'done',
+                        lastUpdate: Date.now(),
+                      });
+                      // Auto-remove after 2 seconds
+                      setTimeout(() => {
+                        setToolStatusGroups(prev2 => {
+                          const nextMap = new Map(prev2);
+                          nextMap.delete(key);
+                          return nextMap;
+                        });
+                      }, 2000);
+                    }
+                  }
+                  
+                  return newMap;
                 });
               }
+
             } else if (ev.type === 'tool' && ev.status === 'done' && ev.result) {
               setMessages(prev => [...prev, { id: `t-${Date.now()}-${Math.random()}`, role: 'tool', content: null, toolName: ev.name, toolResult: ev.result }]);
               // Live-update panel when agent modifies work unit data
@@ -635,8 +869,8 @@ export default function DashboardPage() {
                 loadContracts(); // Refresh contract list
                 if (panelTab !== 'legal') setPanelTab('legal');
               }
-              if (ev.name === 'create_work_unit') {
-                loadPanel(); // Refresh work unit list
+              if (ev.name === 'create_work_unit' || ev.name === 'plan_execute') {
+                loadPanel(); // Refresh work unit list after creation or plan execution
               }
               if (ev.name === 'publish_work_unit' || ev.name === 'fund_escrow') {
                 if (selectedWU) selectWU(selectedWU.id, false); // Refresh financial data
@@ -649,15 +883,34 @@ export default function DashboardPage() {
               loadConversations();
               loadPanel();
               if (selectedWU) selectWU(selectedWU.id, false);
+              // Clear all progress indicators when stream completes
+              setPlanningProgress(null);
+              setToolStatusGroups(new Map());
             } else if (ev.type === 'error') {
               setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: ev.message || 'Error occurred.' } : m));
+              // Clear progress indicators on error too
+              setPlanningProgress(null);
+              setToolStatusGroups(new Map());
             }
           } catch {}
         }
       }
-    } catch {
-      setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: 'Connection lost.' } : m));
-    } finally { setStreaming(false); }
+      
+      // Clear reader reference when stream completes normally
+      streamReaderRef.current = null;
+    } catch (err: any) {
+      // Only show error if user didn't explicitly leave
+      if (!isUserLeavingRef.current) {
+        setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: 'Connection lost.' } : m));
+      }
+      streamReaderRef.current = null;
+    } finally { 
+      setStreaming(false);
+      streamReaderRef.current = null;
+      // Always clear progress indicators when stream ends
+      setPlanningProgress(null);
+      setToolStatusGroups(new Map());
+    }
   }
 
   // ── Resize handler ──
@@ -691,6 +944,47 @@ export default function DashboardPage() {
     <div className="flex h-[calc(100vh-48px)] relative">
       {/* ── Chat ── */}
       <div className={`flex-1 flex flex-col min-w-0 ${isMobile && panelOpen ? 'hidden' : ''}`}>
+        {/* Action indicators header - tool status groups and planning progress */}
+        {(toolStatusGroups.size > 0 || planningProgress) && (
+          <div className="h-auto min-h-[36px] px-3 md:px-4 py-1.5 border-b border-slate-200/30 bg-slate-50/50 flex items-center gap-2 flex-wrap">
+            {/* Planning progress bar */}
+            {planningProgress && (
+              <div className="flex items-center gap-2 px-2 py-1 bg-violet-50 rounded border border-violet-200 max-w-[420px]">
+                <Loader2 className="w-3 h-3 animate-spin text-violet-600 flex-shrink-0" />
+                <div className="flex-1 min-w-[140px]">
+                  <div className="flex items-center justify-between text-[10px] text-violet-700 mb-0.5">
+                    <span className="font-medium">{planningProgress.stage}</span>
+                    <span>{planningProgress.current}/{planningProgress.total}</span>
+                  </div>
+                  {/* Sub-progress bar */}
+                  {planningProgress.subTotal && planningProgress.subTotal > 0 ? (
+                    <div className="h-1 bg-violet-100 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-violet-500 transition-all duration-300"
+                        style={{ width: `${(planningProgress.subCurrent! / planningProgress.subTotal) * 100}%` }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-1 bg-violet-100 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-violet-500 transition-all duration-300"
+                        style={{ width: `${(planningProgress.current / planningProgress.total) * 100}%` }}
+                      />
+                    </div>
+                  )}
+                  {/* Detail text */}
+                  {planningProgress.detail && (
+                    <p className="text-[9px] text-violet-500 mt-0.5 truncate">{planningProgress.detail}</p>
+                  )}
+                </div>
+              </div>
+            )}
+            {/* Grouped tool status indicators */}
+            {Array.from(toolStatusGroups.values()).map(group => (
+              <ToolStatusCompact key={group.toolName} group={group} />
+            ))}
+          </div>
+        )}
         {/* Conv switcher */}
         <div className="h-9 flex items-center justify-between px-3 md:px-4 border-b border-slate-200/30 flex-shrink-0 relative">
           <button onClick={() => setShowConvList(!showConvList)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-700">
@@ -744,18 +1038,19 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {messages.map(msg => {
-                if (msg.role === 'user') return (
-                  <div key={msg.id} className="flex justify-end">
-                    <div className="bg-white rounded-xl rounded-br-sm px-3.5 py-2.5 max-w-[70%] shadow-sm">
-                      <p className="text-sm text-slate-900 whitespace-pre-wrap">{msg.content}</p>
+              {messages.map((msg, idx) => {
+                if (msg.role === 'user') {
+                  return (
+                    <div key={msg.id} className="flex justify-end">
+                      <div className="bg-white rounded-xl rounded-br-sm px-3.5 py-2.5 max-w-[70%] shadow-sm">
+                        <p className="text-sm text-slate-900 whitespace-pre-wrap">{msg.content}</p>
+                      </div>
                     </div>
-                  </div>
-                );
-                if (msg.role === 'status') return (
-                  <ToolStatus key={msg.id} label={msg.statusLabel || ''} toolName={msg.toolName || ''} phase={msg.statusPhase || 'start'} />
-                );
+                  );
+                }
+                if (msg.role === 'status') return null; // Status indicators moved to header
                 if (msg.role === 'tool') return null; // tool results are hidden — agent synthesizes them
+                
                 return (
                   <div key={msg.id} className="pl-0.5">
                     <p className="text-sm text-slate-900 whitespace-pre-wrap leading-relaxed">
@@ -894,10 +1189,10 @@ export default function DashboardPage() {
           {/* Tabs */}
           {selectedWU && (
             <div className="px-4 pt-2 flex gap-3 border-b border-slate-100 flex-shrink-0 overflow-x-auto">
-              {['overview', 'execution', 'financial', 'legal', 'onboard'].map(tab => (
-                <button key={tab} onClick={() => { setPanelTab(tab as any); if (tab === 'legal') loadContracts(); }}
+              {['overview', 'execution', 'financial', 'legal', 'onboard', 'messages'].map(tab => (
+                <button key={tab} onClick={() => { setPanelTab(tab as any); if (tab === 'legal') loadContracts(); if (tab === 'messages') loadExecMessages(); }}
                   className={`pb-2 text-xs capitalize whitespace-nowrap ${panelTab === tab ? 'text-slate-900 border-b-2 border-violet-400' : 'text-slate-400 hover:text-slate-600'}`}>
-                  {tab}
+                  {tab === 'messages' && execMsgUnread > 0 ? <>{tab} <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white rounded-full text-[10px]">{execMsgUnread}</span></> : tab}
                 </button>
               ))}
             </div>
@@ -1006,34 +1301,136 @@ export default function DashboardPage() {
                       )}
                     </div>
 
+                    {/* ── Schedule & Dependencies ── */}
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <span className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Schedule</span>
+                      <div>
+                        <input
+                          type="datetime-local"
+                          value={getVal('scheduledPublishAt', selectedWU.scheduledPublishAt ? new Date(selectedWU.scheduledPublishAt).toISOString().slice(0, 16) : '') || ''}
+                          onChange={e => stageChange('scheduledPublishAt', e.target.value || null)}
+                          className="w-full text-xs text-slate-700 bg-transparent border-0 border-b border-slate-200 focus:border-slate-400 focus:ring-0 py-1"
+                          min={new Date().toISOString().slice(0, 16)}
+                        />
+                        {(getVal('scheduledPublishAt', selectedWU.scheduledPublishAt)) && (
+                          <button onClick={() => stageChange('scheduledPublishAt', null)} className="text-[10px] text-slate-400 hover:text-slate-600 mt-0.5">Clear</button>
+                        )}
+                      </div>
+
+                      {/* Dependencies this WU depends on */}
+                      {selectedWU.publishConditions && (() => {
+                        const conds = selectedWU.publishConditions as any;
+                        const deps = conds?.dependencies || [];
+                        return deps.length > 0 ? (
+                          <div>
+                            <label className="text-[10px] text-slate-400 block mb-1">Depends on ({conds.logic})</label>
+                            {deps.map((d: any, i: number) => {
+                              const depWU = (sideData.workUnits || []).find((w: any) => w.id === d.workUnitId);
+                              return (
+                                <div key={i} className="text-xs text-slate-600 py-0.5 flex items-center gap-1">
+                                  <span className="truncate">{depWU?.title || d.workUnitId?.slice(0, 8) + '…'}</span>
+                                  <span className="text-slate-400 text-[10px] flex-shrink-0">{d.condition}</span>
+                                </div>
+                              );
+                            })}
+                            {selectedWU.status === 'draft' && (
+                              <button onClick={() => stageChange('publishConditions', null)} className="text-[10px] text-slate-400 hover:text-slate-600 mt-1">Clear</button>
+                            )}
+                          </div>
+                        ) : null;
+                      })()}
+
+                      {/* Warning: other WUs depend on this one */}
+                      {(() => {
+                        const dependents = (sideData.workUnits || []).filter((w: any) => {
+                          const pc = w.publishConditions as any;
+                          if (!pc?.dependencies) return false;
+                          return pc.dependencies.some((d: any) => d.workUnitId === selectedWU.id);
+                        });
+                        if (dependents.length === 0) return null;
+                        return (
+                          <div className="p-2 bg-slate-50 rounded text-[10px] text-slate-500">
+                            <span className="font-medium text-slate-600">{dependents.length} task{dependents.length > 1 ? 's' : ''} depend{dependents.length === 1 ? 's' : ''} on this</span>
+                            {dependents.slice(0, 3).map((w: any) => (
+                              <div key={w.id} className="truncate mt-0.5">{w.title}</div>
+                            ))}
+                            {dependents.length > 3 && <div className="mt-0.5">+{dependents.length - 3} more</div>}
+                            {['paused', 'cancelled'].includes(getVal('status', selectedWU.status)) && (
+                              <div className="mt-1 text-[10px] text-slate-500 font-medium">Changing status may block dependent tasks.</div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* ── Contractor Progress ── */}
+                    {selectedWU.executions?.length > 0 && (() => {
+                      const exec = selectedWU.executions.find((e: any) => !['cancelled', 'failed'].includes(e.status)) || selectedWU.executions[0];
+                      if (!exec) return null;
+                      return (
+                        <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                          <span className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">Contractor</span>
+                          <div className="flex justify-between text-xs"><span className="text-slate-400">Name</span><span className="text-slate-700">{exec.student?.name || 'Assigned'}</span></div>
+                          <div className="flex justify-between text-xs"><span className="text-slate-400">Stage</span><span className="text-slate-700 capitalize">{exec.status?.replace(/_/g, ' ')}</span></div>
+                          {exec.statusUpdate && (
+                            <div className="p-1.5 bg-slate-50 rounded text-[10px] text-slate-600">{exec.statusUpdate}</div>
+                          )}
+                          {exec.milestones?.length > 0 && (() => {
+                            const done = exec.milestones.filter((m: any) => m.completedAt).length;
+                            return (
+                              <div className="flex items-center gap-2 text-[10px]">
+                                <span className="text-slate-400">Milestones</span>
+                                <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className="h-full bg-slate-400 rounded-full" style={{ width: `${(done / exec.milestones.length) * 100}%` }} />
+                                </div>
+                                <span className="text-slate-500">{done}/{exec.milestones.length}</span>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      );
+                    })()}
+
                     {/* ── Actions ── */}
                     <div className="flex gap-2 pt-3 border-t border-slate-100">
                       {selectedWU.status === 'active' && (
-                        <button onClick={() => stageChange('status', 'paused')}
-                          className="flex-1 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-md hover:bg-amber-100 transition-colors">
+                        <button onClick={() => {
+                          const deps = (sideData.workUnits || []).filter((w: any) => {
+                            const pc = w.publishConditions as any;
+                            return pc?.dependencies?.some((d: any) => d.workUnitId === selectedWU.id);
+                          });
+                          if (deps.length > 0 && !confirm(`${deps.length} task(s) depend on this one (${deps.map((w: any) => w.title).join(', ')}). Pausing may block them. Continue?`)) return;
+                          stageChange('status', 'paused');
+                        }}
+                          className="flex-1 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-md hover:bg-slate-200 transition-colors">
                           Pause
                         </button>
                       )}
                       {selectedWU.status === 'paused' && (
                         <button onClick={() => stageChange('status', 'active')}
-                          className="flex-1 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 transition-colors">
+                          className="flex-1 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-md hover:bg-slate-200 transition-colors">
                           Resume
                         </button>
                       )}
                       {selectedWU.status === 'draft' && (
                         <button onClick={fundAndPublish}
-                          className="flex-1 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-violet-600 to-indigo-600 rounded-md hover:from-violet-700 hover:to-indigo-700 shadow-sm transition-all">
+                          className="flex-1 py-1.5 text-xs font-medium text-white bg-slate-800 rounded-md hover:bg-slate-900 transition-colors">
                           Publish
                         </button>
                       )}
                       <button onClick={async () => {
-                        if (!confirm(`Delete "${selectedWU.title}"?`)) return;
+                        const deps = (sideData.workUnits || []).filter((w: any) => {
+                          const pc = w.publishConditions as any;
+                          return pc?.dependencies?.some((d: any) => d.workUnitId === selectedWU.id);
+                        });
+                        const depWarning = deps.length > 0 ? `\n\n⚠ ${deps.length} task(s) depend on this one and will lose their dependency.` : '';
+                        if (!confirm(`Delete "${selectedWU.title}"?${depWarning}`)) return;
                         const t = await getToken(); if (!t) return;
                         await fetch(`${API_URL}/api/workunits/${selectedWU.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${t}` } });
                         setSelectedWU(null);
                         loadPanel();
                       }}
-                        className="py-1.5 px-3 text-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors">
+                        className="py-1.5 px-3 text-xs text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-md transition-colors">
                         Delete
                       </button>
                     </div>
@@ -1378,6 +1775,167 @@ export default function DashboardPage() {
                   </div>
                 )}
 
+                {/* Messages Tab */}
+                {panelTab === 'messages' && (
+                  <div className="space-y-3">
+                    {(() => {
+                      // Find the active execution for this WU
+                      const activeExec = selectedWU?.executions?.find((e: any) => !['cancelled', 'failed', 'approved'].includes(e.status));
+                      if (!activeExec) {
+                        return (
+                          <div className="py-8 text-center">
+                            <p className="text-xs text-slate-400">No active contractor to message.</p>
+                            <p className="text-[11px] text-slate-300 mt-1">Messages are available when a contractor is assigned and working.</p>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="flex flex-col" style={{ maxHeight: '500px' }}>
+                          <div className="text-xs text-slate-500 mb-2">
+                            Chat with <span className="font-medium text-slate-700">{activeExec.student?.name || 'Contractor'}</span>
+                          </div>
+                          <div className="flex-1 overflow-y-auto space-y-2 mb-3" style={{ maxHeight: '360px' }}>
+                            {execMessages.length === 0 && (
+                              <p className="text-xs text-slate-400 text-center py-6">No messages yet. Send a message to your contractor.</p>
+                            )}
+                            {execMessages.map((msg: any, i: number) => {
+                              const attachments = msg.attachments && typeof msg.attachments === 'object' && Array.isArray(msg.attachments) ? msg.attachments : [];
+                              const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                              const isRead = msg.readAt && msg.senderType !== 'company';
+                              return (
+                                <div key={msg.id || i} className={`flex ${msg.senderType === 'company' ? 'justify-end' : 'justify-start'}`}>
+                                  <div className="max-w-[80%]">
+                                    {msg.senderType !== 'company' && (
+                                      <p className="text-[10px] font-medium mb-0.5 ml-1 text-slate-600">
+                                        {msg.senderType === 'ai' ? 'AI' : msg.senderName || 'Contractor'}
+                                      </p>
+                                    )}
+                                    <div className={`rounded-lg px-3 py-2 text-xs ${
+                                      msg.senderType === 'company' ? 'bg-violet-500 text-white' :
+                                      msg.senderType === 'ai' ? 'bg-slate-50 text-slate-600 border border-slate-100' :
+                                      'bg-slate-100 text-slate-800'
+                                    }`}>
+                                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                                      {attachments.length > 0 && (
+                                        <div className="mt-2 space-y-1">
+                                          {attachments.map((att: any, ai: number) => (
+                                            <a key={ai} href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[10px] opacity-80 hover:opacity-100 underline">
+                                              <Paperclip className="w-3 h-3" />
+                                              <span className="truncate">{att.filename || 'Attachment'}</span>
+                                            </a>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className={`flex items-center gap-1 text-[10px] mt-0.5 ${msg.senderType === 'company' ? 'justify-end' : 'justify-start'}`}>
+                                      <span className="text-slate-400">{time}</span>
+                                      {msg.senderType === 'company' && isRead && (
+                                        <CheckCircle2 className="w-3 h-3 text-green-500" />
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {execMsgAttachments.length > 0 && (
+                            <div className="mb-2 flex flex-wrap gap-1.5">
+                              {execMsgAttachments.map((att, idx) => (
+                                <div key={idx} className="flex items-center gap-1 px-2 py-1 bg-slate-100 rounded text-[10px]">
+                                  <Paperclip className="w-3 h-3 text-slate-500" />
+                                  <span className="text-slate-700 truncate max-w-[100px]">{att.filename}</span>
+                                  <button type="button" onClick={() => setExecMsgAttachments(prev => prev.filter((_, i) => i !== idx))} className="text-slate-400 hover:text-slate-600">
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <form onSubmit={async (e) => {
+                            e.preventDefault();
+                            if ((!execMsgInput.trim() && execMsgAttachments.length === 0) || execMsgLoading || execMsgInput.length > 10000) return;
+                            const content = execMsgInput.trim() || '(file attachment)';
+                            const attachments = execMsgAttachments;
+                            setExecMsgInput('');
+                            setExecMsgAttachments([]);
+                            setExecMsgLoading(true);
+                            try {
+                              const token = await getToken();
+                              if (!token) return;
+                              const res = await fetch(`${API_URL}/api/executions/${activeExec.id}/messages`, {
+                                method: 'POST',
+                                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ content, messageType: 'text', attachments: attachments.length > 0 ? attachments : undefined }),
+                              });
+                              if (res.ok) {
+                                const msg = await res.json();
+                                setExecMessages(prev => [...prev, msg]);
+                                setExecMsgUnread(0);
+                              } else {
+                                const err = await res.json().catch(() => ({}));
+                                alert(err.message || 'Failed to send message. Please try again.');
+                                setExecMsgInput(content === '(file attachment)' ? '' : content);
+                                setExecMsgAttachments(attachments);
+                              }
+                            } catch (err) {
+                              console.error('Send message error:', err);
+                              alert('Connection error. Please try again.');
+                              setExecMsgInput(content === '(file attachment)' ? '' : content);
+                              setExecMsgAttachments(attachments);
+                            } finally { setExecMsgLoading(false); }
+                          }} className="flex gap-2">
+                            <input type="file" id="exec-msg-file" className="hidden" multiple onChange={async (e) => {
+                              const files = Array.from(e.target.files || []);
+                              if (files.length === 0) return;
+                              setExecMsgUploading(true);
+                              try {
+                                const token = await getToken();
+                                if (!token) return;
+                                const uploads = await Promise.all(files.map(async (file) => {
+                                  const formData = new FormData();
+                                  formData.append('file', file);
+                                  const uploadRes = await fetch(`${API_URL}/api/agent/upload-onboarding-file`, {
+                                    method: 'POST',
+                                    headers: { Authorization: `Bearer ${token}` },
+                                    body: formData,
+                                  });
+                                  if (uploadRes.ok) {
+                                    const data = await uploadRes.json();
+                                    return { url: data.url, filename: data.filename || file.name, mimetype: data.mimetype || file.type, size: data.size || file.size };
+                                  }
+                                  throw new Error('Upload failed');
+                                }));
+                                setExecMsgAttachments(prev => [...prev, ...uploads]);
+                              } catch (err) {
+                                alert('Failed to upload file(s). Please try again.');
+                              } finally {
+                                setExecMsgUploading(false);
+                                (e.target as HTMLInputElement).value = '';
+                              }
+                            }} />
+                            <label htmlFor="exec-msg-file" className="px-2 py-1.5 border border-slate-200 rounded text-xs hover:bg-slate-50 cursor-pointer flex items-center">
+                              {execMsgUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
+                            </label>
+                            <input
+                              value={execMsgInput}
+                              onChange={e => {
+                                if (e.target.value.length <= 10000) setExecMsgInput(e.target.value);
+                              }}
+                              maxLength={10000}
+                              className="flex-1 px-2.5 py-1.5 border border-slate-200 rounded text-xs focus:outline-none focus:ring-1 focus:ring-violet-300"
+                              placeholder="Message contractor..."
+                            />
+                            <button type="submit" disabled={execMsgLoading || (!execMsgInput.trim() && execMsgAttachments.length === 0)}
+                              className="px-2.5 py-1.5 bg-violet-500 text-white rounded text-xs hover:bg-violet-600 disabled:opacity-50">
+                              Send
+                            </button>
+                          </form>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
                 {/* Confirm button */}
                 {hasChanges && (
                   <div className="pt-3 mt-3 border-t border-slate-100">
@@ -1467,6 +2025,34 @@ function ToolStatus({ label, toolName, phase }: { label: string; toolName: strin
         {label}{phase === 'start' ? '…' : ''}
       </span>
       {phase === 'done' && <span className="text-emerald-500 text-[10px]">✓</span>}
+    </div>
+  );
+}
+
+function ToolStatusCompact({ group }: { group: ToolStatusGroup }) {
+  const icon = (() => {
+    if (group.toolName === 'web_search' || group.toolName === 'calculate_pricing') return <Globe className="w-3 h-3" />;
+    if (group.toolName.includes('list') || group.toolName.includes('get')) return <Search className="w-3 h-3" />;
+    if (group.toolName.includes('create') || group.toolName.includes('draft')) return <Sparkles className="w-3 h-3" />;
+    if (group.toolName.includes('estimate') || group.toolName.includes('billing') || group.toolName.includes('fund')) return <Calculator className="w-3 h-3" />;
+    if (group.toolName.includes('contract') || group.toolName.includes('review')) return <FileCheck className="w-3 h-3" />;
+    return <Loader2 className="w-3 h-3" />;
+  })();
+
+  return (
+    <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded border border-slate-200 shadow-sm">
+      <span className={group.phase === 'start' ? 'text-violet-500' : 'text-emerald-500'}>
+        {group.phase === 'start' ? <Loader2 className="w-3 h-3 animate-spin" /> : icon}
+      </span>
+      <span className={`text-[10px] ${group.phase === 'start' ? 'text-violet-600/80' : 'text-slate-500'}`}>
+        {group.label}
+      </span>
+      {group.count > 1 && (
+        <span className={`text-[10px] font-semibold px-1 py-0.5 rounded ${group.phase === 'start' ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700'}`}>
+          {group.count}
+        </span>
+      )}
+      {group.phase === 'done' && <span className="text-emerald-500 text-[10px]">✓</span>}
     </div>
   );
 }

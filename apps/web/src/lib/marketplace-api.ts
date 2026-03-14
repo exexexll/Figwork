@@ -66,6 +66,41 @@ export interface StudentFile {
   uploadedAt: string;
 }
 
+export type PublishConditionType = 'published' | 'completed' | 'failed';
+export type PublishFailureAction = 'publish' | 'cancel' | 'notify';
+export type ContextShareLevel = 'none' | 'summary' | 'full';
+export type PublishLogic = 'AND' | 'OR';
+
+export interface PublishDependency {
+  workUnitId: string;
+  condition: PublishConditionType;
+  onFailure?: PublishFailureAction;
+  shareContext: ContextShareLevel;
+}
+
+export interface PublishConditions {
+  logic: PublishLogic;
+  dependencies: PublishDependency[];
+}
+
+export interface DependencyStatus {
+  workUnitId: string;
+  workUnitTitle: string;
+  condition: PublishConditionType;
+  met: boolean;
+  reason?: string;
+}
+
+export interface PublishStatus {
+  scheduledPublishAt: string | null;
+  conditions: PublishConditions | null;
+  dependencyStatuses: DependencyStatus[];
+  canPublish: boolean;
+  blockingReason?: string;
+  estimatedPublishTime: string | null;
+  dependentWorkUnits: Array<{ id: string; title: string }>;
+}
+
 export interface WorkUnit {
   id: string;
   title: string;
@@ -85,6 +120,8 @@ export interface WorkUnit {
   revisionLimit?: number;
   matchScore?: number;
   estimatedPayout?: number;
+  scheduledPublishAt?: string | null;
+  publishConditions?: PublishConditions | null;
 }
 
 export interface Execution {
@@ -99,6 +136,7 @@ export interface Execution {
   completedAt: string | null;
   qualityScore: number | null;
   expEarned: number;
+  payoutStatus?: string; // pending, processing, completed, failed
   infoSessionId?: string | null;
   workUnit?: WorkUnit;
   milestones?: TaskMilestone[];
@@ -201,6 +239,19 @@ export async function getStripeConnectUrl(token: string) {
   return apiFetch<{ url: string; accountId: string }>('/api/students/connect/onboard', { token });
 }
 
+export async function getStripeConnectStatus(token: string) {
+  return apiFetch<{
+    status: string;
+    chargesEnabled?: boolean;
+    payoutsEnabled?: boolean;
+    detailsSubmitted?: boolean;
+  }>('/api/students/connect/status', { token });
+}
+
+export async function getStripeConnectLoginUrl(token: string) {
+  return apiFetch<{ url: string }>('/api/students/connect/login', { token });
+}
+
 // Student files
 export async function getStudentFiles(token: string) {
   return apiFetch<StudentFile[]>('/api/students/me/files', { token });
@@ -226,6 +277,22 @@ export async function getAvailableTasks(token: string) {
   return apiFetch<{ tasks: WorkUnit[]; matchScores: Record<string, number> }>('/api/students/me/tasks', { token });
 }
 
+// Shared context from dependencies
+export interface SharedContext {
+  workUnitId: string;
+  workUnitTitle: string;
+  shareLevel: ContextShareLevel;
+  category?: string;
+  status?: string;
+  summary?: string;
+  fullContext?: {
+    spec: string;
+    acceptanceCriteria: any[];
+    deliverables?: string[];
+    executionResults?: any;
+  };
+}
+
 // Single task detail (student view)
 export interface TaskDetail extends WorkUnit {
   matchScore: number;
@@ -243,6 +310,7 @@ export interface TaskDetail extends WorkUnit {
     skillMatch: string[];
     missingSkills: string[];
   };
+  sharedContext?: SharedContext[];
 }
 
 export async function getTaskDetail(id: string, token: string) {
@@ -535,6 +603,8 @@ export interface CreateWorkUnitInput {
   milestones?: Array<{ description: string; expectedCompletion: number }>;
   infoCollectionTemplateId?: string; // Optional screening interview
   assignmentMode?: 'auto' | 'manual'; // Auto-match vs company picks from candidates
+  scheduledPublishAt?: string; // ISO date string (UTC)
+  publishConditions?: PublishConditions;
 }
 
 export interface UpdateWorkUnitInput {
@@ -553,6 +623,8 @@ export interface UpdateWorkUnitInput {
   infoCollectionTemplateId?: string | null;
   status?: 'draft' | 'active' | 'paused' | 'completed' | 'cancelled';
   exampleUrls?: string[];
+  scheduledPublishAt?: string | null;
+  publishConditions?: PublishConditions | null;
 }
 
 // Create work unit
@@ -576,6 +648,11 @@ export async function getWorkUnits(token: string, status?: string, category?: st
 // Get single work unit
 export async function getWorkUnit(id: string, token: string) {
   return apiFetch<WorkUnitDetailed>(`/api/workunits/${id}`, { token });
+}
+
+// Get publish status
+export async function getPublishStatus(id: string, token: string) {
+  return apiFetch<PublishStatus>(`/api/workunits/${id}/publish-status`, { token });
 }
 
 // Update work unit
@@ -925,6 +1002,103 @@ export async function getAdminAgreement(id: string, token: string) {
 export async function archiveAgreement(id: string, token: string) {
   return apiFetch<void>(`/api/onboarding-config/agreements/${id}`, {
     method: 'DELETE',
+    token,
+  });
+}
+
+// ============================================================================
+// Daily Tasks & Quiz System
+// ============================================================================
+
+export interface DailyTask {
+  id: string;
+  title: string;
+  spec: string;
+  category: string;
+  priceInCents: number;
+  deadlineHours: number;
+  requiredSkills: string[];
+  minTier: string;
+  complexityScore: number;
+  hasExamples: boolean;
+  publishedAt: string;
+  matchScore: number;
+  dailyReasons: string[];
+  estimatedPayout: number;
+  company: {
+    companyName: string;
+  };
+  milestoneTemplates?: any[];
+}
+
+export interface DailyTasksResponse {
+  tasks: DailyTask[];
+  refreshedAt: string;
+}
+
+// Get daily recommended tasks for student
+export async function getDailyTasks(token: string): Promise<DailyTasksResponse> {
+  return apiFetch<DailyTasksResponse>('/api/students/me/daily-tasks', {
+    token,
+  });
+}
+
+// Mark a daily task as consumed (when student starts working on it)
+export async function consumeDailyTask(workUnitId: string, token: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/students/me/daily-tasks/${workUnitId}/consume`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export interface QuizQuestion {
+  id: string;
+  type: 'open' | 'multiple_choice' | 'math';
+  prompt: string;
+  choices?: string[];
+  rubric?: string;
+  answer?: string;
+}
+
+export interface QuizGenerateResponse {
+  title: string;
+  category: string;
+  questions: QuizQuestion[];
+}
+
+// Generate a daily quiz for a category
+export async function generateDailyQuiz(
+  category: string | undefined,
+  token: string
+): Promise<QuizGenerateResponse> {
+  return apiFetch<QuizGenerateResponse>('/api/students/me/daily-quiz/generate', {
+    method: 'POST',
+    body: { category },
+    token,
+  });
+}
+
+export interface QuizSubmitRequest {
+  category: string;
+  questions: QuizQuestion[];
+  answers: any[];
+}
+
+export interface QuizSubmitResponse {
+  score: number;
+  summary: string;
+  unlocked: boolean;
+  resultId: string | null;
+}
+
+// Submit quiz answers and get score
+export async function submitDailyQuiz(
+  data: QuizSubmitRequest,
+  token: string
+): Promise<QuizSubmitResponse> {
+  return apiFetch<QuizSubmitResponse>('/api/students/me/daily-quiz/submit', {
+    method: 'POST',
+    body: data,
     token,
   });
 }

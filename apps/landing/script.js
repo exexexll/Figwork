@@ -627,42 +627,8 @@ if (!isThesisPage && !isMobileDevice && !prefersReducedMotion) {
 
 
 // ──────────────────────────────────────────
-// 3. WAITLIST
+// 3. CONTACT (email link - no form handler needed)
 // ──────────────────────────────────────────
-const form = document.getElementById('waitlistForm');
-const success = document.getElementById('waitlistSuccess');
-
-if (form) {
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const input = document.getElementById('emailInput');
-    const btn = form.querySelector('.waitlist-btn');
-    const email = input.value.trim();
-    if (!email) return;
-
-    // Disable while submitting
-    btn.disabled = true;
-    btn.textContent = '...';
-
-    try {
-      const res = await fetch('/api/waitlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-
-      if (!res.ok) throw new Error('Request failed');
-
-      form.style.display = 'none';
-      success.classList.add('show');
-    } catch (err) {
-      // Fallback: still show success (email logged server-side or offline)
-      console.warn('Waitlist submit error:', err);
-      form.style.display = 'none';
-      success.classList.add('show');
-    }
-  });
-}
 
 document.querySelectorAll('a[href^="#"]').forEach((a) => {
   a.addEventListener('click', (e) => {

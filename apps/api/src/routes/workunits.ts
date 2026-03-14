@@ -5,6 +5,7 @@ import { PRICING_CONFIG, TIER_CONFIG } from '@figwork/shared';
 import { verifyClerkAuth } from '../lib/clerk.js';
 import { unauthorized, forbidden, notFound, badRequest, internalError } from '../lib/http-errors.js';
 import { analyzeTaskForImprovements } from '../lib/task-improvements.js';
+import { validatePublishConditions, evaluatePublishConditions, getDependentWorkUnits, type PublishConditions } from '../lib/publish-conditions.js';
 
 interface CreateWorkUnitBody {
   title: string;
@@ -26,6 +27,8 @@ interface CreateWorkUnitBody {
   infoCollectionTemplateId?: string;
   assignmentMode?: 'auto' | 'manual';
   milestones?: Array<{ description: string; expectedCompletion: number }>;
+  scheduledPublishAt?: string; // ISO date string
+  publishConditions?: PublishConditions;
 }
 
 interface UpdateWorkUnitBody {
@@ -45,6 +48,8 @@ interface UpdateWorkUnitBody {
   infoCollectionTemplateId?: string | null;
   status?: 'draft' | 'active' | 'paused' | 'completed' | 'cancelled';
   exampleUrls?: string[];
+  scheduledPublishAt?: string | null; // ISO date string or null to clear
+  publishConditions?: PublishConditions | null;
 }
 
 export async function workUnitRoutes(fastify: FastifyInstance) {
@@ -90,6 +95,8 @@ export async function workUnitRoutes(fastify: FastifyInstance) {
         infoCollectionTemplateId,
         assignmentMode,
         milestones,
+        scheduledPublishAt,
+        publishConditions,
       } = request.body;
 
       // AI-driven clarity scoring
@@ -139,9 +146,17 @@ Return JSON: {
         clarityScore = 3;
       }
 
+      // Validate publish conditions if provided
+      if (publishConditions) {
+        const validation = await validatePublishConditions(publishConditions, company.id);
+        if (!validation.valid) {
+          return badRequest(reply, validation.error || 'Invalid publish conditions');
+        }
+      }
+
       const platformFeePercent = PRICING_CONFIG.platformFees[minTier as keyof typeof PRICING_CONFIG.platformFees] || 0.15;
 
-      const workUnit = await db.workUnit.create({
+      const workUnit = await (db.workUnit as any).create({
         data: {
           companyId: company.id,
           title,
@@ -167,6 +182,8 @@ Return JSON: {
           assignmentMode: assignmentMode ?? 'auto',
           platformFeePercent,
           status: 'draft',
+          scheduledPublishAt: scheduledPublishAt ? new Date(scheduledPublishAt) : null,
+          publishConditions: publishConditions ? (publishConditions as unknown as Prisma.InputJsonValue) : null,
           milestoneTemplates: {
             create: (milestones || []).map((m, idx) => ({
               orderIndex: idx,
@@ -201,9 +218,10 @@ Return JSON: {
     const company = (request as any).company;
     const { status, category } = request.query as { status?: string; category?: string };
 
-    const workUnits = await db.workUnit.findMany({
+    const workUnits = await (db.workUnit as any).findMany({
       where: {
         companyId: company.id,
+        archivedAt: null,
         ...(status && { status }),
         ...(category && { category }),
       },
@@ -251,6 +269,76 @@ Return JSON: {
       }
 
       return reply.send(workUnit);
+    }
+  );
+
+  // GET /:id/publish-status
+  fastify.get<{ Params: { id: string } }>(
+    '/:id/publish-status',
+    async (request, reply) => {
+      const company = (request as any).company;
+      const { id } = request.params;
+
+      const workUnit = await db.workUnit.findFirst({
+        where: { id, companyId: company.id },
+        include: { escrow: true },
+      }) as any;
+
+      if (!workUnit) {
+        return notFound(reply, 'Work unit not found');
+      }
+
+      const { met, details, actionRequired } = await evaluatePublishConditions(id);
+      const dependentWorkUnits = await getDependentWorkUnits(id);
+
+      // Determine if can publish
+      let canPublish = false;
+      let blockingReason: string | undefined;
+
+      const hasSchedule = !!workUnit.scheduledPublishAt;
+      const hasConditions = !!workUnit.publishConditions;
+
+      if (workUnit.status !== 'draft') {
+        blockingReason = `Work unit is already ${workUnit.status}`;
+      } else if (!workUnit.escrow || workUnit.escrow.status !== 'funded') {
+        blockingReason = `Escrow needs to be funded first (current: ${workUnit.escrow?.status || 'missing'})`;
+      } else if (hasSchedule && hasConditions) {
+        const scheduledTimePassed = new Date(workUnit.scheduledPublishAt) <= new Date();
+        if (scheduledTimePassed && met) {
+          canPublish = true;
+        } else if (!scheduledTimePassed && !met) {
+          blockingReason = 'Waiting for scheduled time and dependency conditions';
+        } else if (!scheduledTimePassed) {
+          blockingReason = 'Waiting for scheduled time';
+        } else {
+          blockingReason = 'Scheduled time passed but dependencies not met yet';
+        }
+      } else if (hasSchedule) {
+        const scheduledTimePassed = new Date(workUnit.scheduledPublishAt) <= new Date();
+        canPublish = scheduledTimePassed;
+        if (!canPublish) blockingReason = 'Waiting for scheduled time';
+      } else if (hasConditions) {
+        canPublish = met;
+        if (!canPublish) {
+          const metCount = details.filter(d => d.met).length;
+          blockingReason = `${metCount}/${details.length} dependency conditions met`;
+        }
+      } else {
+        canPublish = true; // No conditions, can publish manually
+      }
+
+      return reply.send({
+        scheduledPublishAt: workUnit.scheduledPublishAt?.toISOString?.() || null,
+        conditions: workUnit.publishConditions as PublishConditions | null,
+        dependencyStatuses: details,
+        canPublish,
+        blockingReason,
+        actionRequired: actionRequired || null,
+        estimatedPublishTime: canPublish
+          ? new Date().toISOString()
+          : workUnit.scheduledPublishAt?.toISOString?.() || null,
+        dependentWorkUnits,
+      });
     }
   );
 
@@ -321,16 +409,42 @@ Return JSON: {
         }
       }
 
+      // Validate publish conditions if provided
+      if (updates.publishConditions !== undefined) {
+        if (updates.publishConditions === null) {
+          // Clearing conditions is allowed
+        } else {
+          const validation = await validatePublishConditions(updates.publishConditions, company.id, id);
+          if (!validation.valid) {
+            return badRequest(reply, validation.error || 'Invalid publish conditions');
+          }
+        }
+      }
+
+      const updateData: any = {
+        ...updates,
+        acceptanceCriteria: updates.acceptanceCriteria as Prisma.InputJsonValue,
+        clarityScore,
+        clarityIssues: clarityIssues as Prisma.InputJsonValue ?? existing.clarityIssues,
+        hasExamples: updates.exampleUrls ? updates.exampleUrls.length > 0 : existing.hasExamples,
+        ...(updates.status === 'active' && !existing.publishedAt && { publishedAt: new Date() }),
+      };
+
+      // Handle scheduledPublishAt
+      if (updates.scheduledPublishAt !== undefined) {
+        updateData.scheduledPublishAt = updates.scheduledPublishAt ? new Date(updates.scheduledPublishAt) : null;
+      }
+
+      // Handle publishConditions
+      if (updates.publishConditions !== undefined) {
+        updateData.publishConditions = updates.publishConditions
+          ? (updates.publishConditions as unknown as Prisma.InputJsonValue)
+          : null;
+      }
+
       const updated = await db.workUnit.update({
         where: { id },
-        data: {
-          ...updates,
-          acceptanceCriteria: updates.acceptanceCriteria as Prisma.InputJsonValue,
-          clarityScore,
-          clarityIssues: clarityIssues as Prisma.InputJsonValue ?? existing.clarityIssues,
-          hasExamples: updates.exampleUrls ? updates.exampleUrls.length > 0 : existing.hasExamples,
-          ...(updates.status === 'active' && !existing.publishedAt && { publishedAt: new Date() }),
-        },
+        data: updateData,
         include: {
           milestoneTemplates: { orderBy: { orderIndex: 'asc' } },
           escrow: true,
@@ -350,6 +464,19 @@ Return JSON: {
       // Sync escrow on status change
       if (updates.status === 'cancelled' && existing.status !== 'cancelled') {
         await db.escrow.updateMany({ where: { workUnitId: id, status: { in: ['pending', 'funded'] } }, data: { status: 'refunded', releasedAt: new Date() } });
+      }
+
+      // Trigger re-evaluation of dependent work units on status change
+      if (updates.status && updates.status !== existing.status &&
+          ['completed', 'cancelled', 'active'].includes(updates.status)) {
+        try {
+          const dependents = await getDependentWorkUnits(id);
+          if (dependents.length > 0) {
+            console.log(`[WorkUnits] WU ${id} → ${updates.status}, ${dependents.length} dependent(s) will re-evaluate`);
+          }
+        } catch (err) {
+          console.error('[WorkUnits] Error checking dependents:', err);
+        }
       }
 
       // Reload with updated escrow
@@ -392,9 +519,34 @@ Return JSON: {
       await db.defectAnalysis.deleteMany({ where: { workUnitId: id } });
       await db.agentConversation.deleteMany({ where: { workUnitId: id } });
       await db.paymentTransaction.deleteMany({ where: { workUnitId: id } });
+      await (db as any).dailyTaskAssignment.deleteMany({ where: { workUnitId: id } }).catch(() => {});
       if (workUnit.escrow) await db.escrow.delete({ where: { id: workUnit.escrow.id } });
 
       await db.workUnit.delete({ where: { id } });
+
+      // Clean up dangling dependency references in other work units
+      try {
+        const dependents = await getDependentWorkUnits(id);
+        for (const dep of dependents) {
+          const depWU = await (db.workUnit as any).findUnique({ where: { id: dep.id } });
+          if (!depWU?.publishConditions) continue;
+          const conds = depWU.publishConditions as any;
+          if (!conds?.dependencies) continue;
+          const cleaned = conds.dependencies.filter((d: any) => d.workUnitId !== id);
+          if (cleaned.length === 0) {
+            // No deps left → clear conditions entirely
+            await (db.workUnit as any).update({ where: { id: dep.id }, data: { publishConditions: null } });
+          } else {
+            await (db.workUnit as any).update({
+              where: { id: dep.id },
+              data: { publishConditions: { ...conds, dependencies: cleaned } },
+            });
+          }
+        }
+      } catch (cleanupErr) {
+        console.error('[WorkUnits] Failed to clean up dependency references:', cleanupErr);
+      }
+
       return reply.status(204).send();
     }
   );

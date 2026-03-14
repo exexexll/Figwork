@@ -18,7 +18,7 @@ import {
   Zap,
 } from 'lucide-react';
 import Link from 'next/link';
-import { createWorkUnit, CreateWorkUnitInput } from '@/lib/marketplace-api';
+import { createWorkUnit, CreateWorkUnitInput, getWorkUnits, type PublishConditions, type PublishDependency, type WorkUnitDetailed } from '@/lib/marketplace-api';
 import { getTemplates } from '@/lib/api';
 import type { Template } from '@/lib/types';
 import { track, EVENTS } from '@/lib/analytics';
@@ -52,6 +52,13 @@ export default function NewWorkUnitPage() {
   const [infoCollectionTemplateId, setInfoCollectionTemplateId] = useState('');
   const [templates, setTemplates] = useState<Template[]>([]);
 
+  // Publishing
+  const [publishMode, setPublishMode] = useState<'immediate' | 'scheduled' | 'conditional'>('immediate');
+  const [scheduledPublishAt, setScheduledPublishAt] = useState('');
+  const [publishLogic, setPublishLogic] = useState<'AND' | 'OR'>('AND');
+  const [dependencies, setDependencies] = useState<Array<PublishDependency & { id: string }>>([]);
+  const [availableWorkUnits, setAvailableWorkUnits] = useState<WorkUnitDetailed[]>([]);
+
   useEffect(() => {
     async function loadTemplates() {
       try {
@@ -63,6 +70,20 @@ export default function NewWorkUnitPage() {
     }
     loadTemplates();
   }, [getToken]);
+
+  useEffect(() => {
+    async function loadWorkUnits() {
+      if (publishMode !== 'conditional') return;
+      try {
+        const token = await getToken();
+        if (!token) return;
+        // Fetch all work units (any status) so they can be selected as dependencies
+        const wus = await getWorkUnits(token);
+        setAvailableWorkUnits(wus);
+      } catch {}
+    }
+    loadWorkUnits();
+  }, [getToken, publishMode]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -78,6 +99,19 @@ export default function NewWorkUnitPage() {
     if (cleanedFormat.length === 0) {
       setError('At least one deliverable format is required');
       return;
+    }
+
+    // Validate scheduling
+    if (publishMode === 'scheduled' && !scheduledPublishAt) {
+      setError('Please select a publish date and time');
+      return;
+    }
+    if (publishMode === 'conditional') {
+      const validDeps = dependencies.filter(d => d.workUnitId);
+      if (validDeps.length === 0) {
+        setError('Add at least one dependency for conditional publishing');
+        return;
+      }
     }
 
     try {
@@ -100,6 +134,14 @@ export default function NewWorkUnitPage() {
         revisionLimit,
         assignmentMode,
         infoCollectionTemplateId: enableScreening && infoCollectionTemplateId ? infoCollectionTemplateId : undefined,
+        scheduledPublishAt: publishMode === 'scheduled' && scheduledPublishAt ? scheduledPublishAt : undefined,
+        publishConditions: publishMode === 'conditional' && dependencies.length > 0 ? {
+          logic: publishLogic,
+          dependencies: dependencies.map(d => {
+            const { id, ...dep } = d;
+            return dep;
+          }),
+        } : undefined,
       };
 
       const result = await createWorkUnit(data, token);
@@ -518,6 +560,227 @@ export default function NewWorkUnitPage() {
             Add Milestone
           </button>
         </div>
+
+        {/* Publishing */}
+        <Card>
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Clock className="w-4 h-4 text-[#a78bfa]" />
+              <h2 className="font-semibold text-text-primary">Publishing</h2>
+            </div>
+            <p className="text-sm text-text-secondary">Choose when this task becomes visible to contractors.</p>
+
+            <div className="space-y-1">
+              {[
+                { value: 'immediate', label: 'Publish manually', desc: 'You activate the task when ready — default behavior' },
+                { value: 'scheduled', label: 'Schedule for a specific date', desc: 'Auto-publish at a date and time you set' },
+                { value: 'conditional', label: 'Publish when conditions are met', desc: 'Link to other tasks — publish when dependencies complete' },
+              ].map(opt => (
+                <label
+                  key={opt.value}
+                  className={cn(
+                    'flex items-start gap-3 p-3 rounded-lg cursor-pointer border transition-colors',
+                    publishMode === opt.value
+                      ? 'border-[#c4b5fd] bg-[#faf8fc]'
+                      : 'border-transparent hover:bg-[#fafafa]'
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="publishMode"
+                    value={opt.value}
+                    checked={publishMode === opt.value}
+                    onChange={e => setPublishMode(e.target.value as any)}
+                    className="w-4 h-4 mt-0.5 accent-[#a78bfa]"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-text-primary">{opt.label}</span>
+                    <p className="text-xs text-text-secondary mt-0.5">{opt.desc}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            {publishMode === 'scheduled' && (
+              <div className="mt-2 p-4 bg-[#faf8fc] rounded-lg border border-[#e8e4f0] space-y-3">
+                <label className="block text-sm font-medium text-text-primary">Publish Date & Time</label>
+                <input
+                  type="datetime-local"
+                  value={scheduledPublishAt}
+                  onChange={e => setScheduledPublishAt(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e4f0] bg-white focus:outline-none focus:ring-2 focus:ring-[#c4b5fd]/40 text-sm"
+                  min={new Date().toISOString().slice(0, 16)}
+                />
+                <p className="text-xs text-text-secondary">
+                  The task will automatically go live at this time. Escrow must be funded before the scheduled time.
+                </p>
+              </div>
+            )}
+
+            {publishMode === 'conditional' && (
+              <div className="mt-2 p-4 bg-[#faf8fc] rounded-lg border border-[#e8e4f0] space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-2">When should this task publish?</label>
+                  <div className="flex gap-3">
+                    {[
+                      { value: 'AND', label: 'All conditions met', desc: 'Every dependency must pass' },
+                      { value: 'OR', label: 'Any condition met', desc: 'First one wins' },
+                    ].map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setPublishLogic(opt.value as 'AND' | 'OR')}
+                        className={cn(
+                          'flex-1 p-3 rounded-lg border text-left transition-colors',
+                          publishLogic === opt.value
+                            ? 'border-[#c4b5fd] bg-white'
+                            : 'border-[#e8e4f0] bg-transparent hover:bg-white'
+                        )}
+                      >
+                        <span className="text-sm font-medium text-text-primary block">{opt.label}</span>
+                        <span className="text-xs text-text-secondary">{opt.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-text-primary mb-2">
+                    Dependencies {dependencies.length > 0 && <span className="text-text-muted font-normal">({dependencies.length})</span>}
+                  </label>
+
+                  <div className="space-y-3">
+                    {dependencies.map((dep, idx) => {
+                      const selectedWu = availableWorkUnits.find(w => w.id === dep.workUnitId);
+                      return (
+                        <div key={dep.id} className="p-3 bg-white border border-[#e8e4f0] rounded-xl space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+                              Dependency {idx + 1}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setDependencies(deps => deps.filter(d => d.id !== dep.id))}
+                              className="text-text-muted hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <select
+                            value={dep.workUnitId}
+                            onChange={e => {
+                              const updated = [...dependencies];
+                              updated[idx] = { ...updated[idx], workUnitId: e.target.value };
+                              setDependencies(updated);
+                            }}
+                            className="w-full px-3 py-2 rounded-lg border border-[#e8e4f0] bg-white focus:outline-none focus:ring-2 focus:ring-[#c4b5fd]/40 text-sm"
+                          >
+                            <option value="">Select a task...</option>
+                            {availableWorkUnits.map(wu => (
+                              <option key={wu.id} value={wu.id}>
+                                {wu.title} — {wu.status} · ${(wu.priceInCents / 100).toFixed(0)}
+                              </option>
+                            ))}
+                          </select>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[11px] text-text-muted mb-1">Wait until</label>
+                              <select
+                                value={dep.condition}
+                                onChange={e => {
+                                  const updated = [...dependencies];
+                                  const newCondition = e.target.value as any;
+                                  updated[idx] = {
+                                    ...updated[idx],
+                                    condition: newCondition,
+                                    onFailure: newCondition === 'failed' ? 'notify' : undefined,
+                                  };
+                                  setDependencies(updated);
+                                }}
+                                className="w-full px-2.5 py-1.5 rounded-lg border border-[#e8e4f0] bg-white text-xs"
+                              >
+                                <option value="published">Published (active)</option>
+                                <option value="completed">Completed (approved)</option>
+                                <option value="failed">Failed / cancelled</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[11px] text-text-muted mb-1">Share with contractor</label>
+                              <select
+                                value={dep.shareContext}
+                                onChange={e => {
+                                  const updated = [...dependencies];
+                                  updated[idx] = { ...updated[idx], shareContext: e.target.value as any };
+                                  setDependencies(updated);
+                                }}
+                                className="w-full px-2.5 py-1.5 rounded-lg border border-[#e8e4f0] bg-white text-xs"
+                              >
+                                <option value="none">Nothing</option>
+                                <option value="summary">Summary only</option>
+                                <option value="full">Full context + deliverables</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {dep.condition === 'failed' && (
+                            <div>
+                              <label className="block text-[11px] text-text-muted mb-1">If dependency fails...</label>
+                              <select
+                                value={dep.onFailure || 'notify'}
+                                onChange={e => {
+                                  const updated = [...dependencies];
+                                  updated[idx] = { ...updated[idx], onFailure: e.target.value as any };
+                                  setDependencies(updated);
+                                }}
+                                className="w-full px-2.5 py-1.5 rounded-lg border border-[#e8e4f0] bg-white text-xs"
+                              >
+                                <option value="publish">Publish this task anyway</option>
+                                <option value="cancel">Cancel this task</option>
+                                <option value="notify">Notify me to decide</option>
+                              </select>
+                            </div>
+                          )}
+
+                          {selectedWu && (
+                            <p className="text-[11px] text-text-muted">
+                              {dep.condition === 'published' && `Will publish when "${selectedWu.title}" goes active`}
+                              {dep.condition === 'completed' && `Will publish when "${selectedWu.title}" has an approved execution`}
+                              {dep.condition === 'failed' && `Reacts when "${selectedWu.title}" fails or is cancelled`}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setDependencies([
+                      ...dependencies,
+                      { id: `dep-${Date.now()}`, workUnitId: '', condition: 'completed', shareContext: 'summary' },
+                    ])}
+                    className="flex items-center gap-2 text-sm text-[#a78bfa] hover:text-[#7c3aed] font-medium mt-1"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Dependency
+                  </button>
+                </div>
+
+                {dependencies.length > 0 && (
+                  <div className="p-3 bg-white rounded-lg border border-[#e8e4f0] text-xs text-text-secondary">
+                    <strong className="text-text-primary">How it works:</strong>{' '}
+                    {publishLogic === 'AND'
+                      ? `This task will auto-publish once all ${dependencies.length} dependenc${dependencies.length === 1 ? 'y is' : 'ies are'} met.`
+                      : `This task will auto-publish as soon as any 1 of the ${dependencies.length} dependencies is met.`}
+                    {' '}Escrow must be funded beforehand.
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Onboarding Page Note */}
         <div className="p-4 bg-pink-50/50 border border-pink-100 rounded-xl flex items-center justify-between">

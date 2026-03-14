@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '@figwork/db';
+import { getDependentWorkUnits } from '../lib/publish-conditions.js';
 import { TIER_CONFIG, calculateTaskExp, checkTierUpgrade, TierName, StudentStats, generateSecureToken } from '@figwork/shared';
 import { addHours, addMinutes } from 'date-fns';
 import { verifyClerkAuth } from '../lib/clerk.js';
@@ -97,21 +98,20 @@ export async function executionRoutes(fastify: FastifyInstance) {
         return forbidden(reply, `This task requires ${workUnit.minTier} tier or higher`);
       }
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayCount = await db.execution.count({
-        where: {
-          studentId: student.id,
-          assignedAt: { gte: today },
-        },
-      });
-
-      if (todayCount >= tierConfig.benefits.dailyTaskLimit) {
-        return forbidden(reply, 'Daily task limit reached');
-      }
-
       const isManual = (workUnit as any).assignmentMode === 'manual';
       const hasScreening = !!workUnit.infoCollectionTemplateId;
+
+      // For auto-review tasks (not manual), check credentials before allowing acceptance
+      if (!isManual) {
+        // Check if student has required credentials for payouts
+        if (student.stripeConnectStatus !== 'active' || !student.stripeConnectId) {
+          return badRequest(reply, 'Please complete your Stripe Connect setup to accept tasks. Go to Profile > Payout Settings to set up payments.');
+        }
+        // Check KYC status if required
+        if (student.kycStatus !== 'verified' && student.kycStatus !== 'approved') {
+          return badRequest(reply, 'Please complete identity verification (KYC) to accept tasks. Go to Profile > Verification to complete.');
+        }
+      }
 
       // Use transaction to prevent race conditions (double-accept)
       try {
@@ -557,6 +557,65 @@ export async function executionRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // POST /:id/status-update — Contractor sends a custom status update
+  fastify.post<{ Params: { id: string }; Body: { statusUpdate: string; files?: string[] } }>(
+    '/:id/status-update',
+    async (request, reply) => {
+      const student = (request as any).student;
+      if (!student) return forbidden(reply, 'Only contractors can update status');
+
+      const { id } = request.params;
+      const { statusUpdate, files } = request.body;
+
+      if (!statusUpdate?.trim()) return badRequest(reply, 'Status update text is required');
+
+      const execution = await db.execution.findUnique({
+        where: { id },
+        include: { workUnit: { select: { title: true, companyId: true } } },
+      });
+
+      if (!execution || execution.studentId !== student.id) {
+        return notFound(reply, 'Execution not found');
+      }
+
+      if (['approved', 'failed', 'cancelled'].includes(execution.status)) {
+        return badRequest(reply, 'Cannot update status on a completed execution');
+      }
+
+      // Save the status update
+      const updated = await (db.execution as any).update({
+        where: { id },
+        data: {
+          statusUpdate: statusUpdate.trim(),
+          ...(files?.length ? { deliverableUrls: [...(execution.deliverableUrls || []), ...files] } : {}),
+        },
+      });
+
+      // Also create a notification for the company
+      try {
+        const company = await db.companyProfile.findUnique({
+          where: { id: execution.workUnit.companyId },
+          include: { user: { select: { clerkId: true } } },
+        });
+        if (company?.user?.clerkId) {
+          await db.notification.create({
+            data: {
+              userId: company.user.clerkId,
+              userType: 'company',
+              type: 'contractor_status_update',
+              title: 'Contractor Update',
+              body: `${student.name} updated status on "${execution.workUnit.title}": ${statusUpdate.trim().slice(0, 100)}`,
+              data: { executionId: id, statusUpdate: statusUpdate.trim() },
+              channels: ['in_app'],
+            },
+          });
+        }
+      } catch {}
+
+      return reply.send({ success: true, statusUpdate: (updated as any).statusUpdate });
+    }
+  );
+
   // POST /:id/submit
   fastify.post<{ Params: { id: string }; Body: SubmitDeliverableBody }>(
     '/:id/submit',
@@ -717,9 +776,9 @@ export async function executionRoutes(fastify: FastifyInstance) {
         return forbidden(reply, 'Access denied');
       }
 
-      // If pending_screening, resolve the interview link URL for the student
+      // If pending_screening or pending_review with screening, resolve the interview link URL for the student
       let interviewLink: string | null = null;
-      if (execution.status === 'pending_screening' && execution.infoSessionId) {
+      if ((execution.status === 'pending_screening' || execution.status === 'pending_review') && execution.infoSessionId) {
         const link = await db.interviewLink.findUnique({
           where: { id: execution.infoSessionId },
         });
@@ -1051,6 +1110,17 @@ export async function executionRoutes(fastify: FastifyInstance) {
             data: { status: 'completed' },
           });
 
+          // Trigger re-evaluation of dependent work units
+          try {
+            const dependents = await getDependentWorkUnits(execution.workUnitId);
+            if (dependents.length > 0) {
+              console.log(`[Executions] Work unit ${execution.workUnitId} completed, triggering re-evaluation for ${dependents.length} dependent work unit(s)`);
+              // The scheduler worker will pick these up on the next cycle
+            }
+          } catch (err) {
+            console.error('[Executions] Error checking dependent work units:', err);
+          }
+
           await db.notification.create({
             data: {
               userId: execution.student.clerkId,
@@ -1220,8 +1290,8 @@ export async function executionRoutes(fastify: FastifyInstance) {
   // AI WORK ASSISTANT
   // ====================
 
-  // POST /:id/assist - Get AI assistance without doing the work
-  fastify.post<{ Params: { id: string }; Body: { question: string } }>(
+  // POST /:id/assist - AI assistant with full task + company context + conversation memory
+  fastify.post<{ Params: { id: string }; Body: { question: string; conversationHistory?: Array<{ role: string; content: string }> } }>(
     '/:id/assist',
     async (request, reply) => {
       const { student } = request as any;
@@ -1230,10 +1300,10 @@ export async function executionRoutes(fastify: FastifyInstance) {
       }
 
       const { id } = request.params;
-      const { question } = request.body;
+      const { question, conversationHistory } = request.body;
 
-      if (!question || question.trim().length < 10) {
-        return badRequest(reply, 'Please provide a detailed question (at least 10 characters)');
+      if (!question || question.trim().length < 3) {
+        return badRequest(reply, 'Please provide a question');
       }
 
       const execution = await db.execution.findUnique({
@@ -1242,10 +1312,12 @@ export async function executionRoutes(fastify: FastifyInstance) {
           workUnit: {
             include: {
               milestoneTemplates: { orderBy: { orderIndex: 'asc' } },
+              company: { select: { companyName: true, website: true, address: true } },
             },
           },
           milestones: true,
           revisionRequests: { orderBy: { createdAt: 'desc' }, take: 3 },
+          powLogs: { orderBy: { requestedAt: 'desc' }, take: 3 },
         },
       });
 
@@ -1257,71 +1329,356 @@ export async function executionRoutes(fastify: FastifyInstance) {
         return forbidden(reply, 'Access denied');
       }
 
-      if (!['accepted', 'clocked_in', 'revision_needed'].includes(execution.status)) {
+      if (!['assigned', 'clocked_in', 'revision_needed', 'submitted'].includes(execution.status)) {
         return badRequest(reply, 'Assistant only available for active tasks');
       }
 
-      // Build context for AI
+      // Build rich context with task + company + onboarding knowledge
       const context = buildAssistantContext(execution);
       
-      // Get AI response using OpenAI
+      // Get onboarding page content if it exists (company knowledge base)
+      let onboardingContext = '';
+      try {
+        const company = execution.workUnit.company;
+        const addr = (company.address as any) || {};
+        const pages = addr.onboardingPages || {};
+        const page = pages[execution.workUnit.id];
+        if (page?.blocks?.length) {
+          const blockTexts = page.blocks.map((b: any) => {
+            const c = b.content || {};
+            if (b.type === 'hero') return `# ${c.heading || ''}\n${c.subheading || ''}`;
+            if (b.type === 'text') return `## ${c.heading || ''}\n${c.body || ''}`;
+            if (b.type === 'checklist') return `Checklist: ${c.heading || ''}\n${(c.items || []).map((i: string) => `- ${i}`).join('\n')}`;
+            if (b.type === 'cta') return `CTA: ${c.heading || ''} — ${c.body || ''}`;
+            return '';
+          }).filter(Boolean).join('\n\n');
+          onboardingContext = `\n\nONBOARDING PAGE CONTENT (company-provided instructions):\n${blockTexts}`;
+        }
+      } catch {}
+
+      // Get shared context from dependencies if available
+      let sharedContext = '';
+      try {
+        const conds = execution.workUnit.publishConditions as any;
+        if (conds?.dependencies?.length) {
+          const depIds = conds.dependencies.map((d: any) => d.workUnitId).filter(Boolean);
+          if (depIds.length > 0) {
+            const depWUs = await db.workUnit.findMany({
+              where: { id: { in: depIds } },
+              select: { title: true, spec: true },
+            });
+            if (depWUs.length > 0) {
+              sharedContext = '\n\nRELATED TASKS (your work builds on these):\n' +
+                depWUs.map(d => `- ${d.title}: ${(d.spec || '').slice(0, 200)}`).join('\n');
+            }
+          }
+        }
+      } catch {}
+
       const { getOpenAIClient } = await import('@figwork/ai');
       const openai = getOpenAIClient();
 
+      // Build messages with conversation history for multi-turn chat
+      const messages: any[] = [
+        {
+          role: 'system',
+          content: `You are a knowledgeable work assistant for a contractor on the Figwork platform. You have full knowledge of:
+- The task requirements, spec, and acceptance criteria
+- The company that posted this task (${execution.workUnit.company.companyName})
+- The onboarding instructions the company provided
+- Any previous revision feedback
+- Milestone progress and deadlines
+
+YOUR ROLE:
+1. Answer questions about the task, company, requirements, or deliverable format
+2. Clarify ambiguous instructions using the onboarding content and task spec
+3. Interpret revision feedback and suggest how to address it
+4. Help with approach and best practices for the task category
+5. If the contractor wants to contact the client directly, tell them to use the "Request Meeting" button
+
+RULES:
+- NEVER produce actual deliverables (no code, no designs, no written content)
+- NEVER provide complete solutions — guide them to find the answer
+- Be conversational, helpful, and specific to THIS task
+- Reference specific details from the task spec and onboarding page
+- Keep responses under 300 words
+- If you don't know something about the company, say so honestly
+
+TASK CONTEXT:
+${context}${onboardingContext}${sharedContext}`,
+        },
+      ];
+
+      // Add conversation history (last 10 messages max)
+      if (conversationHistory?.length) {
+        const recent = conversationHistory.slice(-10);
+        for (const msg of recent) {
+          if (msg.role === 'user' || msg.role === 'assistant') {
+            messages.push({ role: msg.role, content: (msg.content || '').slice(0, 500) });
+          }
+        }
+      }
+
+      messages.push({ role: 'user', content: question });
+
       const response = await openai.chat.completions.create({
         model: 'gpt-5.2',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a helpful work assistant for a student contractor. Your role is to:
-1. Clarify task requirements and acceptance criteria
-2. Suggest approaches and best practices
-3. Help interpret feedback from previous revisions
-4. Answer questions about deliverable formats
-
-IMPORTANT RULES:
-- NEVER write code, content, or deliverables for the student
-- NEVER provide complete solutions
-- If asked to do the actual work, politely decline and offer guidance instead
-- Keep responses concise (under 200 words)
-- Focus on teaching HOW to do things, not WHAT to deliver
-
-Task Context:
-${context}`,
-          },
-          {
-            role: 'user',
-            content: question,
-          },
-        ],
-        max_completion_tokens: 400,
-        temperature: 0.7,
+        messages,
+        max_completion_tokens: 600,
+        temperature: 0.3,
       });
 
-      const answer = response.choices[0]?.message?.content || 'I apologize, I could not generate a response.';
+      const answer = response.choices[0]?.message?.content || 'Sorry, I couldn\'t generate a response. Try rephrasing your question.';
 
-      // Log the assistance request
+      return reply.send({
+        answer,
+        disclaimer: 'This assistant provides guidance only. You must complete the actual work yourself.',
+      });
+    }
+  );
+
+  // POST /:id/request-meeting - Contractor requests a meeting with the client
+  fastify.post<{ Params: { id: string }; Body: { message?: string; preferredTime?: string } }>(
+    '/:id/request-meeting',
+    async (request, reply) => {
+      const { student } = request as any;
+      if (!student) return forbidden(reply, 'Only students can request meetings');
+
+      const { id } = request.params;
+      const { message, preferredTime } = request.body;
+
+      const execution = await db.execution.findUnique({
+        where: { id },
+        include: {
+          workUnit: { include: { company: { include: { user: true } } } },
+        },
+      });
+
+      if (!execution) return notFound(reply, 'Execution not found');
+      if (execution.studentId !== student.id) return forbidden(reply, 'Access denied');
+
+      // Create notification for the company
       await db.notification.create({
         data: {
-          userId: student.clerkId,
-          userType: 'student',
-          type: 'assistant_used',
-          title: 'Work Assistant',
-          body: question.substring(0, 100),
-          channels: ['in_app'],
+          userId: execution.workUnit.company.user.clerkId,
+          userType: 'company',
+          type: 'meeting_request',
+          title: `Meeting requested by ${student.name}`,
+          body: `${student.name} working on "${execution.workUnit.title}" is requesting a meeting.${message ? ` Message: ${message}` : ''}${preferredTime ? ` Preferred time: ${preferredTime}` : ''}`,
+          channels: ['in_app', 'email'],
           data: {
             executionId: id,
-            questionLength: question.length,
-            responseLength: answer.length,
+            workUnitId: execution.workUnit.id,
+            studentId: student.id,
+            studentName: student.name,
+            message: message || null,
+            preferredTime: preferredTime || null,
           },
         },
       });
 
-      return reply.send({
-        question,
-        answer,
-        disclaimer: 'This assistant provides guidance only. You must complete the actual work yourself.',
+      // Also notify the student it was sent
+      await db.notification.create({
+        data: {
+          userId: student.clerkId,
+          userType: 'student',
+          type: 'meeting_request_sent',
+          title: 'Meeting request sent',
+          body: `Your meeting request for "${execution.workUnit.title}" has been sent to ${execution.workUnit.company.companyName}.`,
+          channels: ['in_app'],
+        },
       });
+
+      return reply.send({
+        success: true,
+        message: `Meeting request sent to ${execution.workUnit.company.companyName}. They'll be notified via email and in-app notification.`,
+      });
+    }
+  );
+
+  // ====================
+  // EXECUTION MESSAGING (client ↔ contractor)
+  // ====================
+
+  // GET /:id/messages — List all messages in thread
+  fastify.get<{ Params: { id: string } }>(
+    '/:id/messages',
+    async (request, reply) => {
+      const authResult = await verifyClerkAuth(request, reply);
+      if (!authResult) return;
+      const { id } = request.params;
+
+      // Verify access — must be the assigned student OR the company that owns the WU
+      const execution = await db.execution.findUnique({
+        where: { id },
+        include: { workUnit: { select: { companyId: true } }, student: { select: { clerkId: true } } },
+      });
+      if (!execution) return notFound(reply, 'Execution not found');
+
+      const user = await db.user.findUnique({ where: { clerkId: authResult.userId }, include: { companyProfile: true } });
+      const isCompany = user?.companyProfile?.id === execution.workUnit.companyId;
+      const isStudent = execution.student.clerkId === authResult.userId;
+      if (!isCompany && !isStudent) return forbidden(reply, 'Access denied');
+
+      const messages = await (db as any).executionMessage.findMany({
+        where: { executionId: id },
+        orderBy: { createdAt: 'asc' },
+        take: 200,
+      });
+
+      // Count unread for the current user
+      const myType = isCompany ? 'company' : 'student';
+      const unreadCount = messages.filter((m: any) => m.senderType !== myType && m.senderType !== 'system' && !m.readAt).length;
+
+      return reply.send({ messages, unreadCount });
+    }
+  );
+
+  // POST /:id/messages — Send a message
+  fastify.post<{ Params: { id: string }; Body: { content: string; messageType?: string; attachments?: any[]; metadata?: any } }>(
+    '/:id/messages',
+    async (request, reply) => {
+      const authResult = await verifyClerkAuth(request, reply);
+      if (!authResult) return;
+      const { id } = request.params;
+      const { content, messageType, attachments, metadata } = request.body;
+
+      if (!content?.trim()) return badRequest(reply, 'Message content is required');
+      if (content.length > 10000) return badRequest(reply, 'Message too long (max 10,000 characters)');
+
+      const execution = await db.execution.findUnique({
+        where: { id },
+        include: {
+          workUnit: { include: { company: { include: { user: true } } } },
+          student: { select: { id: true, clerkId: true, name: true } },
+        },
+      });
+      if (!execution) return notFound(reply, 'Execution not found');
+
+      const user = await db.user.findUnique({ where: { clerkId: authResult.userId }, include: { companyProfile: true } });
+      const isCompany = user?.companyProfile?.id === execution.workUnit.companyId;
+      const isStudent = execution.student.clerkId === authResult.userId;
+      if (!isCompany && !isStudent) return forbidden(reply, 'Access denied');
+
+      const senderType = isCompany ? 'company' : 'student';
+      const senderName = isCompany ? execution.workUnit.company.companyName : execution.student.name;
+
+      const message = await (db as any).executionMessage.create({
+        data: {
+          executionId: id,
+          senderId: authResult.userId,
+          senderType,
+          senderName: senderName || 'Unknown',
+          messageType: messageType || 'text',
+          content: content.trim(),
+          attachments: attachments || undefined,
+          metadata: metadata || undefined,
+        },
+      });
+
+      // Notify the other party
+      if (isCompany) {
+        // Notify the student
+        await db.notification.create({
+          data: {
+            userId: execution.student.clerkId,
+            userType: 'student',
+            type: 'execution_message',
+            title: `Message from ${senderName}`,
+            body: content.slice(0, 150),
+            channels: ['in_app', 'email'],
+            data: { executionId: id, messageId: message.id, workUnitTitle: execution.workUnit.title },
+          },
+        });
+      } else {
+        // Notify the company
+        await db.notification.create({
+          data: {
+            userId: execution.workUnit.company.user.clerkId,
+            userType: 'company',
+            type: 'execution_message',
+            title: `Message from ${senderName} on "${execution.workUnit.title}"`,
+            body: content.slice(0, 150),
+            channels: ['in_app', 'email'],
+            data: { executionId: id, messageId: message.id, workUnitId: execution.workUnit.id, studentName: senderName },
+          },
+        });
+      }
+
+      // Emit WebSocket event if available
+      try {
+        const { getIO } = await import('../websocket/index.js');
+        const io = getIO();
+        if (io) {
+          const marketplace = io.of('/marketplace');
+          // Emit to both user-specific room and execution room
+          const userRoom = isCompany ? `student:${execution.student.clerkId}` : `company:${execution.workUnit.company.user.clerkId}`;
+          const execRoom = `execution:${id}`;
+          const payload = { executionId: id, message };
+          marketplace.to(userRoom).emit('execution:message:new', payload);
+          marketplace.to(execRoom).emit('execution:message:new', payload);
+        }
+      } catch {}
+
+      return reply.status(201).send(message);
+    }
+  );
+
+  // POST /:id/messages/read-all — Mark all messages as read
+  fastify.post<{ Params: { id: string } }>(
+    '/:id/messages/read-all',
+    async (request, reply) => {
+      const authResult = await verifyClerkAuth(request, reply);
+      if (!authResult) return;
+      const { id } = request.params;
+
+      const execution = await db.execution.findUnique({
+        where: { id },
+        include: { workUnit: { select: { companyId: true } }, student: { select: { clerkId: true } } },
+      });
+      if (!execution) return notFound(reply, 'Execution not found');
+
+      const user = await db.user.findUnique({ where: { clerkId: authResult.userId }, include: { companyProfile: true } });
+      const isCompany = user?.companyProfile?.id === execution.workUnit.companyId;
+      const isStudent = execution.student.clerkId === authResult.userId;
+      if (!isCompany && !isStudent) return forbidden(reply, 'Access denied');
+
+      // Mark messages from the OTHER party as read
+      const otherType = isCompany ? 'student' : 'company';
+      await (db as any).executionMessage.updateMany({
+        where: { executionId: id, senderType: { in: [otherType, 'ai'] }, readAt: null },
+        data: { readAt: new Date() },
+      });
+
+      return reply.send({ success: true });
+    }
+  );
+
+  // GET /:id/messages/unread — Get unread count (lightweight for badges)
+  fastify.get<{ Params: { id: string } }>(
+    '/:id/messages/unread',
+    async (request, reply) => {
+      const authResult = await verifyClerkAuth(request, reply);
+      if (!authResult) return;
+      const { id } = request.params;
+
+      const execution = await db.execution.findUnique({
+        where: { id },
+        include: { workUnit: { select: { companyId: true } }, student: { select: { clerkId: true } } },
+      });
+      if (!execution) return notFound(reply, 'Execution not found');
+
+      const user = await db.user.findUnique({ where: { clerkId: authResult.userId }, include: { companyProfile: true } });
+      const isCompany = user?.companyProfile?.id === execution.workUnit.companyId;
+      const isStudent = execution.student.clerkId === authResult.userId;
+      if (!isCompany && !isStudent) return forbidden(reply, 'Access denied');
+
+      const otherType = isCompany ? 'student' : 'company';
+      const count = await (db as any).executionMessage.count({
+        where: { executionId: id, senderType: { in: [otherType, 'ai'] }, readAt: null },
+      });
+
+      return reply.send({ unreadCount: count });
     }
   );
 
@@ -1382,44 +1739,81 @@ ${context}`,
 
 // Helper: Build context for AI assistant
 function buildAssistantContext(execution: any): string {
-  const workUnit = execution.workUnit;
+  const wu = execution.workUnit;
+  const company = wu.company;
   const lines: string[] = [];
 
-  lines.push(`Task: ${workUnit.title}`);
-  lines.push(`Category: ${workUnit.category}`);
-  lines.push(`\nDescription:\n${workUnit.description}`);
+  // Company info
+  lines.push(`COMPANY: ${company.companyName}${company.website ? ` (${company.website})` : ''}`);
 
-  if (workUnit.acceptanceCriteria) {
-    lines.push(`\nAcceptance Criteria:\n${workUnit.acceptanceCriteria}`);
-  }
+  // Task details
+  lines.push(`\nTASK: ${wu.title}`);
+  lines.push(`Category: ${wu.category}`);
+  lines.push(`Status: ${execution.status}`);
+  lines.push(`Price: $${(wu.priceInCents / 100).toFixed(2)}`);
+  lines.push(`Complexity: ${wu.complexityScore}/5`);
+  if (wu.requiredSkills?.length) lines.push(`Required Skills: ${wu.requiredSkills.join(', ')}`);
 
-  if (workUnit.deliverableFormat) {
-    lines.push(`\nDeliverable Format: ${workUnit.deliverableFormat}`);
-  }
+  // Full spec
+  lines.push(`\nSPECIFICATION:\n${wu.spec || wu.description || 'No detailed spec provided.'}`);
 
-  if (workUnit.milestoneTemplates?.length > 0) {
-    lines.push(`\nMilestones:`);
-    workUnit.milestoneTemplates.forEach((m: any, i: number) => {
-      const completed = execution.milestones?.find((em: any) => em.templateId === m.id)?.completedAt;
-      lines.push(`${i + 1}. ${m.description} ${completed ? '✓' : '○'}`);
+  // Acceptance criteria
+  if (wu.acceptanceCriteria) {
+    const criteria = Array.isArray(wu.acceptanceCriteria) ? wu.acceptanceCriteria : [wu.acceptanceCriteria];
+    lines.push(`\nACCEPTANCE CRITERIA:`);
+    criteria.forEach((c: any) => {
+      if (typeof c === 'string') lines.push(`- ${c}`);
+      else if (c.criterion) lines.push(`- ${c.criterion}${c.required ? ' (required)' : ''}`);
     });
   }
 
+  // Deliverable format
+  if (wu.deliverableFormat?.length) {
+    lines.push(`\nDELIVERABLE FORMAT: ${Array.isArray(wu.deliverableFormat) ? wu.deliverableFormat.join(', ') : wu.deliverableFormat}`);
+  }
+
+  // Milestones with progress
+  if (wu.milestoneTemplates?.length > 0) {
+    const completed = execution.milestones?.filter((m: any) => m.completedAt).length || 0;
+    lines.push(`\nMILESTONES (${completed}/${wu.milestoneTemplates.length} done):`);
+    wu.milestoneTemplates.forEach((m: any, i: number) => {
+      const done = execution.milestones?.find((em: any) => em.templateId === m.id)?.completedAt;
+      lines.push(`${i + 1}. ${m.description} ${done ? '✓ completed' : '○ pending'}`);
+    });
+  }
+
+  // Revision feedback (critical for contractor)
   if (execution.revisionRequests?.length > 0) {
-    lines.push(`\nPrevious Revision Feedback:`);
-    execution.revisionRequests.forEach((r: any) => {
-      lines.push(`- ${r.overallFeedback}`);
+    lines.push(`\nREVISION FEEDBACK (address these issues):`);
+    execution.revisionRequests.forEach((r: any, i: number) => {
+      lines.push(`Revision ${i + 1}: ${r.overallFeedback}`);
       if (r.issues) {
-        const issues = typeof r.issues === 'string' ? JSON.parse(r.issues) : r.issues;
-        issues.forEach((issue: any) => {
-          lines.push(`  • ${issue.criterion}: ${issue.issue}`);
-        });
+        try {
+          const issues = typeof r.issues === 'string' ? JSON.parse(r.issues) : r.issues;
+          if (Array.isArray(issues)) {
+            issues.forEach((issue: any) => {
+              lines.push(`  • ${issue.criterion || 'Issue'}: ${issue.issue || issue}`);
+            });
+          }
+        } catch {}
       }
     });
   }
 
-  const hoursRemaining = Math.max(0, (new Date(execution.deadlineAt).getTime() - Date.now()) / (1000 * 60 * 60));
-  lines.push(`\nTime Remaining: ${Math.round(hoursRemaining)} hours`);
+  // POW check history
+  if (execution.powLogs?.length > 0) {
+    const failed = execution.powLogs.filter((p: any) => p.status === 'failed').length;
+    if (failed > 0) {
+      lines.push(`\n⚠ POW CHECK: ${failed} failed check-in(s). Stay active and responsive.`);
+    }
+  }
+
+  // Deadline
+  if (execution.deadlineAt) {
+    const hoursRemaining = Math.max(0, (new Date(execution.deadlineAt).getTime() - Date.now()) / (1000 * 60 * 60));
+    const urgency = hoursRemaining < 6 ? '🔴 URGENT' : hoursRemaining < 24 ? '🟡 Soon' : '🟢 OK';
+    lines.push(`\nDEADLINE: ${Math.round(hoursRemaining)} hours remaining ${urgency}`);
+  }
 
   return lines.join('\n');
 }

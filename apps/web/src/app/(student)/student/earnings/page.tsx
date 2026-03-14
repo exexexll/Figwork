@@ -15,6 +15,8 @@ import {
   getStudentBalance,
   getStudentPayouts,
   requestInstantPayout,
+  getStripeConnectUrl,
+  getStripeConnectLoginUrl,
   Payout,
 } from '@/lib/marketplace-api';
 
@@ -32,6 +34,7 @@ export default function EarningsPage() {
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [loading, setLoading] = useState(true);
   const [requestingPayout, setRequestingPayout] = useState(false);
+  const [openingConnect, setOpeningConnect] = useState(false);
   const [payoutResult, setPayoutResult] = useState<string | null>(null);
 
   useEffect(() => {
@@ -68,6 +71,25 @@ export default function EarningsPage() {
       setPayoutResult(err instanceof Error ? err.message : 'Payout failed');
     } finally {
       setRequestingPayout(false);
+    }
+  }
+
+  async function handleConnect() {
+    try {
+      setOpeningConnect(true);
+      const token = await getToken();
+      if (!token) return;
+      if (balance?.stripeConnectStatus === 'active') {
+        const result = await getStripeConnectLoginUrl(token);
+        window.open(result.url, '_blank');
+      } else {
+        const result = await getStripeConnectUrl(token);
+        window.open(result.url, '_blank');
+      }
+    } catch (err) {
+      setPayoutResult(err instanceof Error ? err.message : 'Unable to open Stripe Connect');
+    } finally {
+      setOpeningConnect(false);
     }
   }
 
@@ -135,10 +157,33 @@ export default function EarningsPage() {
           </button>
         )}
 
-        {balance?.stripeConnectStatus !== 'active' && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-white/15 rounded-lg text-sm">
-            <AlertCircle className="w-4 h-4" />
-            Complete Stripe Connect setup to receive payouts
+        {balance?.stripeConnectStatus !== 'active' ? (
+          <div className="flex items-center justify-between gap-3 px-4 py-3 bg-white/15 rounded-lg text-sm">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              Complete Stripe Connect setup to receive payouts
+            </div>
+            <button
+              onClick={handleConnect}
+              disabled={openingConnect}
+              className="px-3 py-1.5 rounded-lg bg-white text-[#a2a3fc] font-medium hover:bg-[#f0f0ff] disabled:opacity-60 transition-colors"
+            >
+              {openingConnect ? 'Opening...' : 'Set up'}
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-3 px-4 py-3 bg-white/15 rounded-lg text-sm">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4" />
+              Stripe Connect is active
+            </div>
+            <button
+              onClick={handleConnect}
+              disabled={openingConnect}
+              className="px-3 py-1.5 rounded-lg bg-white text-[#a2a3fc] font-medium hover:bg-[#f0f0ff] disabled:opacity-60 transition-colors"
+            >
+              {openingConnect ? 'Opening...' : 'Open Dashboard'}
+            </button>
           </div>
         )}
       </div>

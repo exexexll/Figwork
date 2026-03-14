@@ -36,6 +36,8 @@ export const MARKETPLACE_EVENTS = {
   WARNING_POW: 'marketplace:warning:pow',
 
   COACHING_MESSAGE: 'marketplace:coaching:message',
+
+  EXECUTION_MESSAGE_NEW: 'execution:message:new',
 } as const;
 
 export type MarketplaceEventType = typeof MARKETPLACE_EVENTS[keyof typeof MARKETPLACE_EVENTS];
@@ -353,6 +355,8 @@ export function formatEventMessage(event: MarketplaceEventType, data: any): {
       return { title: 'Inactivity Alert', message: data.message || 'No recent activity detected', type: 'warning' };
     case MARKETPLACE_EVENTS.COACHING_MESSAGE:
       return { title: 'Coaching Tip', message: data.message || 'New coaching recommendation', type: 'info' };
+    case MARKETPLACE_EVENTS.EXECUTION_MESSAGE_NEW:
+      return { title: 'New Message', message: data.message?.content?.slice(0, 100) || 'You have a new message', type: 'info' };
     default:
       return { title: 'Update', message: 'New marketplace update', type: 'info' };
   }

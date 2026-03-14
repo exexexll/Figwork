@@ -6,16 +6,16 @@ import { useSearchParams } from 'next/navigation';
 import {
   User,
   Search,
-  Filter,
-  ChevronRight,
   Star,
   Clock,
   AlertTriangle,
   CheckCircle,
   XCircle,
-  TrendingUp,
-  TrendingDown,
   Award,
+  FileText,
+  DollarSign,
+  Shield,
+  Ban,
 } from 'lucide-react';
 
 interface Student {
@@ -75,6 +75,7 @@ export default function AdminStudentsPage() {
     currentTier: string;
   } | null>(null);
   const [tierChangeForm, setTierChangeForm] = useState({ tier: '', reason: '' });
+  const [suspending, setSuspending] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -158,6 +159,35 @@ export default function AdminStudentsPage() {
     }
   }
 
+  async function handleSuspend(studentId: string, reason: string) {
+    if (!reason.trim()) return;
+    setSuspending(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/students/${studentId}/suspend`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ reason }),
+        }
+      );
+      if (res.ok) {
+        await fetchStudents();
+        if (selectedStudent?.id === studentId) {
+          await fetchStudentDetail(studentId);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to suspend student:', error);
+    } finally {
+      setSuspending(false);
+    }
+  }
+
   function getTierBadgeColor(tier: string) {
     switch (tier) {
       case 'elite':
@@ -204,6 +234,60 @@ export default function AdminStudentsPage() {
           <p className="text-text-secondary mt-1">
             Manage student profiles, tiers, and performance
           </p>
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-violet-50 flex items-center justify-center">
+              <User className="w-5 h-5 text-violet-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-semibold text-text-primary">{students.length}</p>
+              <p className="text-sm text-text-secondary">Visible students</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center">
+              <Shield className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-semibold text-text-primary">
+                {students.filter(s => s.kycStatus === 'verified').length}
+              </p>
+              <p className="text-sm text-text-secondary">KYC verified</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-amber-50 flex items-center justify-center">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-semibold text-text-primary">
+                {students.filter(s => s.kycStatus === 'pending').length}
+              </p>
+              <p className="text-sm text-text-secondary">Pending KYC</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center">
+              <Award className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-semibold text-text-primary">
+                {students.filter(s => s.tier === 'elite').length}
+              </p>
+              <p className="text-sm text-text-secondary">Elite tier</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -412,8 +496,68 @@ export default function AdminStudentsPage() {
                   </div>
                 )}
 
+                {/* Files / payouts / disputes */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h3 className="font-medium text-text-primary mb-3 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-violet-600" />
+                      Files
+                    </h3>
+                    {selectedStudent.uploadedFiles.length === 0 ? (
+                      <p className="text-sm text-text-secondary">No uploaded files</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {selectedStudent.uploadedFiles.slice(0, 6).map((file) => (
+                          <li key={file.id} className="text-sm text-text-secondary">
+                            <span className="font-medium text-text-primary">{file.fileType}</span>
+                            <div className="truncate">{file.filename}</div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h3 className="font-medium text-text-primary mb-3 flex items-center gap-2">
+                      <DollarSign className="w-4 h-4 text-green-600" />
+                      Payouts
+                    </h3>
+                    {selectedStudent.payouts.length === 0 ? (
+                      <p className="text-sm text-text-secondary">No payouts yet</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {selectedStudent.payouts.slice(0, 5).map((payout) => (
+                          <li key={payout.id} className="text-sm text-text-secondary">
+                            <span className="font-medium text-text-primary">${(payout.amountInCents / 100).toFixed(2)}</span>
+                            <span className="ml-2 capitalize">{payout.status}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h3 className="font-medium text-text-primary mb-3 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600" />
+                      Disputes
+                    </h3>
+                    {selectedStudent.disputes.length === 0 ? (
+                      <p className="text-sm text-text-secondary">No disputes</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {selectedStudent.disputes.slice(0, 5).map((dispute) => (
+                          <li key={dispute.id} className="text-sm text-text-secondary">
+                            <span className="font-medium text-text-primary capitalize">{dispute.status}</span>
+                            <div className="truncate">{dispute.reason}</div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+
                 {/* Actions */}
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <button
                     onClick={() =>
                       setTierChangeModal({
@@ -424,6 +568,17 @@ export default function AdminStudentsPage() {
                     className="btn-primary px-4 py-2"
                   >
                     Change Tier
+                  </button>
+                  <button
+                    onClick={() => {
+                      const reason = window.prompt('Suspend reason');
+                      if (reason) handleSuspend(selectedStudent.id, reason);
+                    }}
+                    disabled={suspending}
+                    className="px-4 py-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors inline-flex items-center gap-2"
+                  >
+                    <Ban className="w-4 h-4" />
+                    {suspending ? 'Suspending…' : 'Suspend'}
                   </button>
                 </div>
               </div>

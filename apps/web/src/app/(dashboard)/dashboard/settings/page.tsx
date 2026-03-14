@@ -12,6 +12,7 @@ import {
   CheckCircle,
   AlertCircle,
   Mic,
+  MessageSquare,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -200,6 +201,42 @@ export default function SettingsPage() {
               </div>
               <ChevronRight className="w-5 h-5 text-text-secondary" />
             </Link>
+          </CardContent>
+        </Card>
+
+        {/* Notification Preferences */}
+        <Card>
+          <CardContent className="p-0">
+            <div className="p-6">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-blue-50">
+                  <MessageSquare className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-text-primary">Notification Preferences</h3>
+                  <p className="text-sm text-text-secondary">Control how you receive updates</p>
+                </div>
+              </div>
+              <div className="space-y-3 text-sm">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" defaultChecked className="w-4 h-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500" />
+                  <span className="text-text-primary">Email notifications for new messages</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" defaultChecked className="w-4 h-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500" />
+                  <span className="text-text-primary">In-app notifications</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" defaultChecked className="w-4 h-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500" />
+                  <span className="text-text-primary">Task status updates</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" defaultChecked className="w-4 h-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500" />
+                  <span className="text-text-primary">Deadline reminders</span>
+                </label>
+              </div>
+              <p className="text-xs text-text-secondary mt-4 italic">Preferences are saved automatically</p>
+            </div>
           </CardContent>
         </Card>
 

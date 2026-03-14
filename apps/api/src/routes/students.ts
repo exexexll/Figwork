@@ -3,11 +3,13 @@ import { db } from '@figwork/db';
 import { TIER_CONFIG } from '@figwork/shared';
 import { verifyClerkAuth } from '../lib/clerk.js';
 import { unauthorized, forbidden, badRequest, notFound, conflict } from '../lib/http-errors.js';
+import { getSharedContext } from '../lib/publish-conditions.js';
 import {
   createIdentityVerificationSession,
   getIdentityVerificationStatus,
   createExpressAccount,
   createConnectAccountLink,
+  createConnectLoginLink,
   getConnectAccountStatus,
 } from '../lib/stripe-service.js';
 import {
@@ -494,6 +496,26 @@ export async function studentRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // GET /connect/login — Open Stripe Express dashboard for an active account
+  fastify.get('/connect/login', async (request, reply) => {
+    const student = (request as any).student;
+    if (!student.stripeConnectId) {
+      return badRequest(reply, 'No Stripe Connect account found');
+    }
+
+    try {
+      const status = await getConnectAccountStatus(student.stripeConnectId);
+      const isActive = status.chargesEnabled && status.payoutsEnabled;
+      if (!isActive) {
+        return badRequest(reply, 'Stripe Connect setup is not complete');
+      }
+      const url = await createConnectLoginLink(student.stripeConnectId);
+      return reply.send({ url });
+    } catch {
+      return badRequest(reply, 'Unable to open Stripe dashboard');
+    }
+  });
+
   // GET /me
   fastify.get('/me', async (request, reply) => {
     const student = (request as any).student;
@@ -639,9 +661,10 @@ export async function studentRoutes(fastify: FastifyInstance) {
     const student = (request as any).student;
     const tierConfig = TIER_CONFIG[student.tier as keyof typeof TIER_CONFIG];
 
-    const workUnits = await db.workUnit.findMany({
+    const workUnits = await (db.workUnit as any).findMany({
       where: {
         status: 'active',
+        archivedAt: null,
         complexityScore: { lte: tierConfig.benefits.maxComplexity },
         minTier: { in: getEligibleTiers(student.tier) },
         NOT: {
@@ -662,14 +685,14 @@ export async function studentRoutes(fastify: FastifyInstance) {
       take: 20,
     });
 
-    const tasksWithScores = workUnits.map(wu => ({
+    const tasksWithScores = workUnits.map((wu: any) => ({
       ...wu,
       matchScore: calculateMatchScore(student, wu),
       estimatedPayout: calculateStudentPayout(wu.priceInCents, student.tier),
     }));
 
     const matchScores: Record<string, number> = {};
-    tasksWithScores.forEach(t => { matchScores[t.id] = t.matchScore; });
+    tasksWithScores.forEach((t: any) => { matchScores[t.id] = t.matchScore; });
 
     return reply.send({ tasks: tasksWithScores, matchScores });
   });
@@ -709,6 +732,9 @@ export async function studentRoutes(fastify: FastifyInstance) {
       student.skillTags.includes(s)
     );
 
+    // Get shared context from dependencies if any
+    const sharedContext = await getSharedContext(id, student.id).catch(() => []);
+
     return reply.send({
       ...workUnit,
       executions: undefined, // Don't leak other student's data
@@ -723,6 +749,7 @@ export async function studentRoutes(fastify: FastifyInstance) {
         missingSkills: workUnit.requiredSkills.filter(s => !student.skillTags.includes(s)),
       },
       requiresScreening: !!workUnit.infoCollectionTemplateId,
+      sharedContext, // Add shared context from dependencies
     });
   });
 
@@ -1051,22 +1078,32 @@ function getEligibleTiers(studentTier: string): string[] {
 }
 
 function calculateMatchScore(student: any, workUnit: any): number {
+  // Base score starts at 0.5 (50%)
   let score = 0.5;
   
+  // Skill matching: +0.1 per matching skill (up to 0.3 for 3+ skills)
   const matchingSkills = (workUnit.requiredSkills || []).filter((s: string) => 
-    student.skillTags.includes(s)
+    (student.skillTags || []).includes(s)
   );
-  score += matchingSkills.length * 0.1;
+  score += Math.min(matchingSkills.length * 0.1, 0.3);
   
-  if (student.tasksCompleted >= workUnit.preferredHistory) {
+  // Experience bonus: +0.2 if student has enough completed tasks
+  if (student.tasksCompleted >= (workUnit.preferredHistory || 0)) {
     score += 0.2;
   }
   
-  if (student.avgQualityScore >= 0.8) {
+  // Quality bonus: +0.15 for high quality score
+  if (student.avgQualityScore && student.avgQualityScore >= 0.8) {
     score += 0.15;
   }
   
-  return Math.min(score, 1);
+  // On-time bonus: +0.05 for excellent on-time rate
+  if (student.onTimeRate && student.onTimeRate >= 0.95) {
+    score += 0.05;
+  }
+  
+  // Ensure score is between 0.5 and 1.0, then return as decimal (0.5-1.0)
+  return Math.min(Math.max(score, 0.5), 1.0);
 }
 
 function calculateStudentPayout(priceInCents: number, tier: string): number {

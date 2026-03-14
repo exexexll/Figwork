@@ -124,7 +124,8 @@ export default function TaskDetailPage() {
       if (!token) return;
       const result = await acceptTask(taskId, token);
       track(EVENTS.TASK_ACCEPTED, { workUnitId: taskId, requiresScreening: result.requiresScreening });
-      router.push(`/student/executions/${result.id}/onboard`);
+      // Skip onboarding, go directly to execution page
+      router.push(`/student/executions/${result.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to accept task');
     } finally {
@@ -277,6 +278,64 @@ export default function TaskDetailPage() {
 
       {/* ─── Body — all collapsible sections ─── */}
       <div className="bg-white rounded-xl border border-[#f0f0f5] px-6">
+
+        {/* Related Work (Shared Context from Dependencies) */}
+        {task.sharedContext && task.sharedContext.length > 0 && (
+          <Section title="Related Work" defaultOpen={false}>
+            <div className="space-y-3">
+              <p className="text-xs text-[#6b6b80] mb-3">
+                This task builds on or relates to the following completed work:
+              </p>
+              {task.sharedContext.map((ctx: any, idx: number) => (
+                <div key={idx} className="p-3 bg-[#fafaff] rounded-lg border border-[#f0f0f5]">
+                  <div className="flex items-start justify-between mb-2">
+                    <h4 className="text-sm font-semibold text-[#1f1f2e]">{ctx.workUnitTitle}</h4>
+                    <span className="text-xs text-[#a0a0b0] px-2 py-0.5 bg-white rounded">
+                      {ctx.shareLevel === 'summary' ? 'Summary' : ctx.shareLevel === 'full' ? 'Full Context' : 'None'}
+                    </span>
+                  </div>
+                  {ctx.shareLevel === 'summary' && ctx.summary && (
+                    <p className="text-xs text-[#6b6b80]">{ctx.summary}</p>
+                  )}
+                  {ctx.shareLevel === 'full' && ctx.fullContext && (
+                    <div className="space-y-2 mt-2">
+                      <div>
+                        <p className="text-xs font-medium text-[#1f1f2e] mb-1">Specification:</p>
+                        <p className="text-xs text-[#6b6b80] line-clamp-3">{ctx.fullContext.spec}</p>
+                      </div>
+                      {ctx.fullContext.deliverables && ctx.fullContext.deliverables.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-[#1f1f2e] mb-1">Deliverables:</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {ctx.fullContext.deliverables.map((url: string, i: number) => (
+                              <a
+                                key={i}
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-[#a2a3fc] hover:text-[#7b7cee] underline"
+                              >
+                                Deliverable {i + 1}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {ctx.fullContext.executionResults && (
+                        <div className="text-xs text-[#6b6b80]">
+                          Status: {ctx.fullContext.executionResults.status}
+                          {ctx.fullContext.executionResults.qualityScore && (
+                            <> · Quality: {Math.round(ctx.fullContext.executionResults.qualityScore * 100)}%</>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
 
         {/* Task Description */}
         <Section title="Task Description" defaultOpen>

@@ -10,6 +10,12 @@ import { validateCriticalEnvironment, logServiceStatus } from './lib/env-config.
 // Validate critical env vars before anything else
 validateCriticalEnvironment();
 
+// Global BigInt serialization fix — Prisma returns BigInt for aggregate/count fields
+// JSON.stringify cannot handle BigInt natively, so we add a toJSON method
+(BigInt.prototype as any).toJSON = function () {
+  return Number(this);
+};
+
 // Import routes
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerTemplateRoutes } from './routes/templates.js';
@@ -21,12 +27,16 @@ import { registerInterviewRoutes } from './routes/interview.js';
 import { registerWebhookRoutes } from './routes/webhooks.js';
 import { studentRoutes } from './routes/students.js';
 import { companyRoutes } from './routes/companies.js';
+import { companyPanelRoutes } from './routes/company-panel.js';
 import { workUnitRoutes } from './routes/workunits.js';
+import { workflowGroupRoutes } from './routes/workflow-groups.js';
 import { executionRoutes } from './routes/executions.js';
 import { powRoutes } from './routes/pow.js';
 import { paymentRoutes } from './routes/payments.js';
 import adminRoutes from './routes/admin.js';
 import onboardingConfigRoutes from './routes/onboarding-config.js';
+import dailyTaskRoutes from './routes/daily-tasks.js';
+import quizRoutes from './routes/quiz.js';
 import agentRoutes from './routes/agent.js';
 import { setupWebSocket } from './websocket/index.js';
 
@@ -42,6 +52,8 @@ import { startPayoutWorker } from './workers/payout.worker.js';
 import { startNotificationWorker } from './workers/notification.worker.js';
 import { startInvoiceWorker } from './workers/invoice.worker.js';
 import { startDefectAnalysisWorker } from './workers/defect-analysis.worker.js';
+import { startPublishSchedulerWorker } from './workers/publish-scheduler.worker.js';
+import { startWorkforceWorker } from './workers/workforce.worker.js';
 
 const fastify = Fastify({
   logger: {
@@ -67,7 +79,7 @@ await fastify.register(cors, {
 // Rate limiting with Redis store
 await fastify.register(rateLimit, {
   global: true,
-  max: 100, // 100 requests per minute by default
+  max: 300, // 300 requests per minute — dashboard polls every 30s with multiple parallel calls
   timeWindow: '1 minute',
   redis: getRedis(),
   keyGenerator: (request: { user?: { id: string }; ip: string }) => {
@@ -192,13 +204,17 @@ await registerWebhookRoutes(fastify);
 // Marketplace routes
 await fastify.register(studentRoutes, { prefix: '/api/students' });
 await fastify.register(companyRoutes, { prefix: '/api/companies' });
+await fastify.register(companyPanelRoutes, { prefix: '/api/companies' });
 await fastify.register(workUnitRoutes, { prefix: '/api/workunits' });
+await fastify.register(workflowGroupRoutes, { prefix: '/api/workflow-groups' });
 await fastify.register(executionRoutes, { prefix: '/api/executions' });
 await fastify.register(powRoutes, { prefix: '/api/pow' });
 await fastify.register(paymentRoutes, { prefix: '/api/payments' });
 await fastify.register(adminRoutes, { prefix: '/api/admin' });
 await fastify.register(agentRoutes, { prefix: '/api/agent' });
 await fastify.register(onboardingConfigRoutes, { prefix: '/api/onboarding-config' });
+await fastify.register(dailyTaskRoutes, { prefix: '/api/students/me' });
+await fastify.register(quizRoutes, { prefix: '/api/students/me' });
 
 // Public marketplace search (no auth required)
 fastify.get('/api/marketplace/search', async (request, reply) => {
@@ -210,6 +226,7 @@ fastify.get('/api/marketplace/search', async (request, reply) => {
 
   const where: any = {
     status: 'active',
+    archivedAt: null,
   };
 
   // Full-text search on title and spec — sanitize input
@@ -251,7 +268,7 @@ fastify.get('/api/marketplace/search', async (request, reply) => {
   else if (sort === 'deadline') orderBy = { deadlineHours: 'asc' };
 
   const [tasks, total] = await Promise.all([
-    db.workUnit.findMany({
+    (db.workUnit as any).findMany({
       where,
       orderBy,
       take: limit,
@@ -273,11 +290,11 @@ fastify.get('/api/marketplace/search', async (request, reply) => {
         },
       },
     }),
-    db.workUnit.count({ where }),
+    (db.workUnit as any).count({ where }),
   ]);
 
   return reply.send({
-    tasks: tasks.map(t => ({
+    tasks: tasks.map((t: any) => ({
       ...t,
       companyName: t.company.companyName,
       company: undefined,
@@ -290,15 +307,15 @@ fastify.get('/api/marketplace/search', async (request, reply) => {
 
 // Get unique categories for search filters
 fastify.get('/api/marketplace/categories', async (request, reply) => {
-  const categories = await db.workUnit.findMany({
-    where: { status: 'active' },
+  const categories = await (db.workUnit as any).findMany({
+    where: { status: 'active', archivedAt: null },
     select: { category: true },
     distinct: ['category'],
     orderBy: { category: 'asc' },
   });
 
   return reply.send({
-    categories: categories.map(c => c.category),
+    categories: categories.map((c: any) => c.category),
   });
 });
 
@@ -317,6 +334,8 @@ startPayoutWorker();
 startNotificationWorker();
 startInvoiceWorker();
 startDefectAnalysisWorker();
+startPublishSchedulerWorker();
+startWorkforceWorker();
 
 // Start server
 const start = async () => {

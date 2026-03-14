@@ -135,10 +135,11 @@ export function setupMarketplaceNamespace(io: Server): void {
       socket.join(getCompanyRoom(resolvedCompanyId));
 
       // Join rooms for active work units
-      const activeWorkUnits = await db.workUnit.findMany({
+      const activeWorkUnits = await (db.workUnit as any).findMany({
         where: {
           companyId: resolvedCompanyId,
           status: { in: ['active', 'in_progress', 'review_pending'] },
+          archivedAt: null,
         },
         include: {
           executions: {
