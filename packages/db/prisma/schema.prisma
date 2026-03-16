@@ -266,6 +266,7 @@ model StudentProfile {
   // Tax Status
   taxStatus     String    @default("pending") @map("tax_status") @db.VarChar(20)
   taxFormType   String?   @map("tax_form_type") @db.VarChar(10) // W9, W8BEN
+  taxData       Json?     @map("tax_data") // Encrypted W-9 data (legalName, maskedTin, address, etc.)
   taxVerifiedAt DateTime? @map("tax_verified_at") @db.Timestamptz
   stripeTaxId   String?   @map("stripe_tax_id") @db.VarChar(255)
 
@@ -595,6 +596,9 @@ model MilestoneTemplate {
   orderIndex         Int    @map("order_index")
   description        String @db.VarChar(500)
   expectedCompletion Float  @map("expected_completion") // 0-1, e.g., 0.25 = 25% through deadline
+  payoutPercent      Float  @default(0) @map("payout_percent") // % of total price paid on completion (0-100)
+  requiresReview     Boolean @default(true) @map("requires_review") // Whether company must approve before payout
+  deliverableType    String  @default("link") @map("deliverable_type") @db.VarChar(20) // "link", "file", "both"
 
   workUnit   WorkUnit        @relation(fields: [workUnitId], references: [id], onDelete: Cascade)
   milestones TaskMilestone[]
@@ -705,14 +709,22 @@ model TaskMilestone {
   executionId String @map("execution_id") @db.Uuid
   templateId  String @map("template_id") @db.Uuid
 
-  // Completion
-  completedAt DateTime? @map("completed_at") @db.Timestamptz
-  evidenceUrl String?   @map("evidence_url") @db.Text
-  notes       String?   @db.Text
+  // Submission
+  status        String    @default("pending") @db.VarChar(20) // pending, submitted, approved, revision_needed
+  submittedAt   DateTime? @map("submitted_at") @db.Timestamptz
+  completedAt   DateTime? @map("completed_at") @db.Timestamptz
+  evidenceUrl   String?   @map("evidence_url") @db.Text // Link-based deliverable
+  fileUrls      String[]  @map("file_urls") // File-based deliverables (Cloudinary URLs)
+  notes         String?   @db.Text
+  revisionNotes String?   @map("revision_notes") @db.Text // Feedback from company
 
   // Verification
   verifiedAt DateTime? @map("verified_at") @db.Timestamptz
   verifiedBy String?   @map("verified_by") @db.VarChar(50) // auto, company, figwork
+
+  // Payout
+  payoutAmountInCents Int? @map("payout_amount_in_cents")
+  payoutStatus        String @default("pending") @map("payout_status") @db.VarChar(20) // pending, processing, completed
 
   execution Execution         @relation(fields: [executionId], references: [id], onDelete: Cascade)
   template  MilestoneTemplate @relation(fields: [templateId], references: [id])

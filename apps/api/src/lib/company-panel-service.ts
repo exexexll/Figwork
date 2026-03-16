@@ -3,7 +3,10 @@
  * All functions are DB-only; no duplicate business logic.
  */
 
-import { db } from '@figwork/db';
+import { db as _db } from '@figwork/db';
+
+// Cast to any to avoid stale Prisma client type errors for newer schema fields
+const db = _db as any;
 
 // ============================================================
 // Archive Operations
@@ -26,7 +29,7 @@ export async function restoreWorkUnit(companyId: string, workUnitId: string): Pr
 export async function listArchivedWorkUnits(companyId: string) {
   return await db.workUnit.findMany({
     where: { companyId, archivedAt: { not: null } },
-    include: { escrow: true, executions: { take: 1, orderBy: { createdAt: 'desc' } } },
+    include: { escrow: true, executions: { take: 1, orderBy: { assignedAt: 'desc' } } },
     orderBy: { archivedAt: 'desc' },
   });
 }
@@ -223,7 +226,7 @@ export async function exportWorkUnitsJson(companyId: string) {
         include: {
           student: { select: { id: true, name: true, email: true, tier: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { assignedAt: 'desc' },
       },
     },
     orderBy: { createdAt: 'desc' },
@@ -241,7 +244,7 @@ export async function exportExecutionsJson(companyId: string) {
       qaCheck: true,
       payout: true,
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { assignedAt: 'desc' },
   });
 
   return JSON.stringify(executions, null, 2);
@@ -364,7 +367,7 @@ export async function bulkAssignContractor(
           studentId: student.id,
           status: 'assigned',
           deadlineAt: deadline,
-          milestones: { create: wu.milestoneTemplates.map(mt => ({ templateId: mt.id })) },
+          milestones: { create: wu.milestoneTemplates.map((mt: any) => ({ templateId: mt.id })) },
         },
       });
 
@@ -413,6 +416,6 @@ export async function getContractorHistory(companyId: string, studentId: string)
       qaCheck: true,
       payout: true,
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { assignedAt: 'desc' },
   });
 }

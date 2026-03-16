@@ -108,47 +108,105 @@ export default function ExecutionOnboardPage() {
         }
       } catch {}
 
-      // Load active contracts — only those scoped to this work unit + unscoped ones
+      // Load active contracts for this execution (student-accessible endpoint)
+      // IMPORTANT: Show ALL contracts (signed + unsigned) so the page doesn't auto-skip
       try {
-        const contractRes = await fetch(`${API_URL}/api/agent/contracts`, {
+        const contractRes = await fetch(`${API_URL}/api/executions/${executionId}/contracts`, {
           headers: { Authorization: `Bearer ${t}` },
         });
         if (contractRes.ok) {
           const data = await contractRes.json();
-          const wuPrefix = `wu-${execData.workUnitId.slice(0, 8)}`;
-          const filtered = (data.contracts || []).filter((c: any) =>
-            c.status === 'active' && (c.slug?.startsWith(wuPrefix) || !c.slug?.startsWith('wu-'))
-          );
-          setContracts(filtered);
+          const allContracts = data.contracts || [];
+          // Show all contracts — both signed and unsigned
+          setContracts(allContracts);
+          // Pre-mark already signed contracts
+          const alreadySigned = new Set<string>(allContracts.filter((c: any) => c.signed).map((c: any) => c.id as string));
+          setSignedContracts(alreadySigned);
         }
       } catch {}
-
-      // Check which contracts student already signed
-      // For now, start with none signed
     } catch {
+      // If loading fails, mark as onboarded and proceed
+      localStorage.setItem(`onboarded_${executionId}`, 'true');
       router.push(`/student/executions/${executionId}`);
+      return;
     } finally {
       setLoading(false);
     }
   }
+
+  // Auto-skip: if no contracts AND no onboarding content, mark as done and redirect
+  useEffect(() => {
+    if (!loading && execution) {
+      const hasContracts = contracts.length > 0;
+      const hasOnboardContent = onboarding && (onboarding.welcome || onboarding.instructions || (onboarding.checklist && onboarding.checklist.length > 0));
+      if (!hasContracts && !hasOnboardContent) {
+        localStorage.setItem(`onboarded_${executionId}`, 'true');
+        router.push(`/student/executions/${executionId}`);
+      }
+    }
+  }, [loading, execution, contracts, onboarding]);
 
   async function signContract(contract: Contract) {
     setSigning(contract.id);
     try {
       const t = await getToken(); if (!t) return;
 
-      // Create signature record
-      await fetch(`${API_URL}/api/onboarding-config/agreements/${contract.id}/sign`, {
+      const res = await fetch(`${API_URL}/api/onboarding-config/agreements/${contract.id}/sign`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signedName: 'Electronic Signature' }),
+        body: JSON.stringify({ signedName: 'Electronic Signature', executionId }),
       });
 
-      setSignedContracts(prev => { const n = new Set(Array.from(prev)); n.add(contract.id); return n; });
-      setViewingContract(null);
-    } catch {}
+      if (res.ok) {
+        const data = await res.json();
+        if (data.method === 'already_signed') {
+          // Already signed — just mark it
+          setSignedContracts(prev => { const n = new Set(Array.from(prev)); n.add(contract.id); return n; });
+          setViewingContract(null);
+        } else if (data.signingUrl) {
+          // DocuSign: redirect to signing ceremony
+          window.location.href = data.signingUrl;
+          return; // Don't clear signing state — page will navigate away
+        } else {
+          // In-app fallback: mark as signed locally
+          setSignedContracts(prev => { const n = new Set(Array.from(prev)); n.add(contract.id); return n; });
+          setViewingContract(null);
+        }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setDocuSignError(errData.error || 'Failed to sign. Please try again.');
+      }
+    } catch (err) {
+      console.error('Failed to sign contract:', err);
+    }
     setSigning(null);
   }
+
+  // Handle DocuSign return — check URL params for signing result
+  const [docuSignError, setDocuSignError] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const signedId = params.get('signed');
+      const event = params.get('event');
+
+      if (signedId && (!event || event === 'signing_complete')) {
+        // Successful signing
+        setSignedContracts(prev => { const n = new Set(Array.from(prev)); n.add(signedId); return n; });
+      } else if (event === 'decline') {
+        setDocuSignError('You declined the agreement. You must sign to proceed.');
+      } else if (event === 'cancel' || event === 'session_timeout' || event === 'ttl_expired') {
+        setDocuSignError('Signing was cancelled or expired. Click "Sign" to try again.');
+      } else if (event === 'exception') {
+        setDocuSignError('There was an error during signing. Please try again.');
+      }
+
+      // Clean URL params
+      if (signedId || event) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+  }, []);
 
   function toggleChecklist(idx: number) {
     setChecklistDone(prev => {
@@ -360,6 +418,15 @@ export default function ExecutionOnboardPage() {
                 </a>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* DocuSign error message */}
+        {docuSignError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{docuSignError}</span>
+            <button onClick={() => setDocuSignError(null)} className="ml-auto text-red-400 hover:text-red-600">×</button>
           </div>
         )}
 

@@ -34,14 +34,7 @@ import {
 const ACCENT = '#a2a3fc';
 const BG_STORAGE_KEY = 'figwork-dash-bg';
 
-/* ── Placeholder tasks so the carousel is always visible during dev ── */
-const PLACEHOLDER_TASKS: WorkUnit[] = [
-  { id: 'ph-1', title: 'Social Media Content — Write 10 Instagram Captions', spec: 'Create engaging captions for a fitness brand targeting millennials. Each caption 50-100 words with relevant hashtags.', category: 'writing', priceInCents: 2500, deadlineHours: 48, requiredSkills: ['copywriting'], complexityScore: 2, minTier: 'novice', status: 'open' },
-  { id: 'ph-2', title: 'Data Entry — Organize 500 Product Listings', spec: 'Transfer product info from PDF catalog into structured spreadsheet with name, SKU, price, dimensions, and weight.', category: 'data-entry', priceInCents: 4500, deadlineHours: 72, requiredSkills: ['data-entry'], complexityScore: 1, minTier: 'novice', status: 'open' },
-  { id: 'ph-3', title: 'Logo Redesign — Modern Minimalist Style', spec: 'Redesign an outdated restaurant logo. Deliver SVG + PNG in 3 color variants. Must include icon and wordmark versions.', category: 'design', priceInCents: 8000, deadlineHours: 96, requiredSkills: ['graphic-design'], complexityScore: 4, minTier: 'pro', status: 'open' },
-  { id: 'ph-4', title: 'Research Report — AI in Healthcare 2026', spec: 'Write a 2000-word report with cited sources on current AI applications in diagnostics, drug discovery, and patient care.', category: 'research', priceInCents: 6000, deadlineHours: 120, requiredSkills: ['research', 'writing'], complexityScore: 5, minTier: 'pro', status: 'open' },
-  { id: 'ph-5', title: 'Video Editing — 3-Minute YouTube Intro', spec: 'Edit raw footage into a polished intro video with transitions, lower-thirds, background music, and color grading.', category: 'video', priceInCents: 5000, deadlineHours: 48, requiredSkills: ['video-editing'], complexityScore: 3, minTier: 'novice', status: 'open' },
-];
+/* Placeholder tasks removed — production mode */
 
 /* ── Animated count-up hook ── */
 function useCountUp(target: number, duration = 1200) {
@@ -197,11 +190,7 @@ export default function StudentDashboard() {
         setProfile(profileData);
         setExecutions(Array.isArray(executionsData) ? executionsData : []);
         const realTasks: WorkUnit[] = tasksData?.tasks || [];
-        const combined = [
-          ...realTasks,
-          ...PLACEHOLDER_TASKS.filter((ph) => !realTasks.some((rt) => rt.id === ph.id)),
-        ];
-        setAvailableTasks(combined);
+        setAvailableTasks(realTasks);
         setDailyTasks(dailyTasksData?.tasks || []);
         setPendingPOW(Array.isArray(powData) ? powData : []);
         setBalance(balanceData);

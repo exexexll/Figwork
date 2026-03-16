@@ -124,6 +124,20 @@ export default function ExecutionDetailPage() {
         getExecution(executionId, token),
         getExecutionRevisions(executionId, token).catch(() => []),
       ]);
+
+      // ── Onboarding/Contract enforcement ──
+      // ALWAYS redirect to onboard page on first visit for new executions
+      // The onboard page handles: contracts, onboarding content, and skip logic
+      if (execData && ['assigned', 'pending_review', 'pending_screening'].includes(execData.status) && !onboardingChecked) {
+        const localOnboarded = typeof window !== 'undefined' && localStorage.getItem(`onboarded_${executionId}`);
+        if (!localOnboarded) {
+          // Always go to onboard page — it will skip itself if nothing is needed
+          router.push(`/student/executions/${executionId}/onboard`);
+          return;
+        }
+        setOnboardingChecked(true);
+      }
+
       setExecution(execData);
       setRevisions(revData);
 
@@ -334,14 +348,30 @@ export default function ExecutionDetailPage() {
     }
   }
 
-  async function handleCompleteMilestone(milestoneId: string) {
+  // Milestone submission state — per milestone
+  const [activeMilestoneSubmit, setActiveMilestoneSubmit] = useState<string | null>(null);
+  const [milestoneLink, setMilestoneLink] = useState('');
+  const [milestoneNotes, setMilestoneNotes] = useState('');
+  const [milestoneSubmitting, setMilestoneSubmitting] = useState(false);
+
+  async function handleSubmitMilestone(milestoneId: string) {
     try {
+      setMilestoneSubmitting(true);
       const token = await getToken();
       if (!token) return;
-      await completeMilestone(executionId, milestoneId, {}, token);
+      await completeMilestone(executionId, milestoneId, {
+        evidenceUrl: milestoneLink.trim() || undefined,
+        notes: milestoneNotes.trim() || undefined,
+      }, token);
+      setActiveMilestoneSubmit(null);
+      setMilestoneLink('');
+      setMilestoneNotes('');
       await loadData();
     } catch (err) {
-      console.error('Failed to complete milestone:', err);
+      console.error('Failed to submit milestone:', err);
+      setError(err instanceof Error ? err.message : 'Failed to submit milestone');
+    } finally {
+      setMilestoneSubmitting(false);
     }
   }
 
@@ -638,7 +668,7 @@ export default function ExecutionDetailPage() {
               </button>
             ) : null}
 
-            {canSubmit && (
+            {canSubmit && (!execution.milestones || execution.milestones.length === 0) && (
               <button
                 onClick={() => setShowSubmitForm(!showSubmitForm)}
                 className="flex items-center gap-2 px-4 py-2 bg-[#a2a3fc] text-white rounded-lg text-sm font-medium hover:bg-[#8b8cf0] transition-colors"
@@ -722,51 +752,96 @@ export default function ExecutionDetailPage() {
         </div>
       )}
 
-      {/* Milestones */}
+      {/* Milestones — with inline submit forms */}
       {execution.milestones && execution.milestones.length > 0 && (
         <div className="bg-white rounded-xl border border-[#f0f0f5] overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-[#f0f0f5] flex items-center justify-between">
-            <h2 className="font-semibold text-[#1f1f2e]">Milestones</h2>
-            <span className="text-sm text-[#6b6b80]">
-              {completedMilestones}/{totalMilestones} completed
-            </span>
+          <div className="px-5 py-3.5 border-b border-[#f0f0f5] flex items-center justify-between">
+            <span className="text-sm font-medium text-[#1f1f2e]">Milestones</span>
+            <span className="text-xs text-[#a0a0b0]">{completedMilestones}/{totalMilestones}</span>
           </div>
           <div className="divide-y divide-[#f0f0f5]">
             {execution.milestones
-              .sort((a, b) => a.orderIndex - b.orderIndex)
-              .map(milestone => (
-                <div key={milestone.id} className="px-6 py-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                      milestone.completedAt ? 'bg-[#f0f0ff]' : 'bg-[#f5f5f5]'
-                    }`}>
-                      {milestone.completedAt ? (
-                        <CheckCircle className="w-4 h-4 text-[#a2a3fc]" />
-                      ) : (
-                        <Target className="w-4 h-4 text-[#a0a0b0]" />
-                      )}
-                    </div>
-                    <div>
-                      <div className={`text-sm ${milestone.completedAt ? 'text-[#1f1f2e]' : 'text-[#6b6b80]'}`}>
-                        {milestone.description}
-                      </div>
-                      {milestone.completedAt && (
-                        <div className="text-xs text-[#a0a0b0] mt-0.5">
-                          Completed: {new Date(milestone.completedAt).toLocaleDateString()}
+              .sort((a, b) => (a.template?.orderIndex ?? a.orderIndex ?? 0) - (b.template?.orderIndex ?? b.orderIndex ?? 0))
+              .map(milestone => {
+                const desc = milestone.template?.description || milestone.description || 'Milestone';
+                const status = (milestone as any).status || (milestone.completedAt ? 'approved' : 'pending');
+                const payout = milestone.template?.payoutPercent ? `${milestone.template.payoutPercent}%` : null;
+                const revisionNote = (milestone as any).revisionNotes;
+                const isDone = status === 'approved';
+                const isSubmitted = status === 'submitted';
+                const needsRevision = status === 'revision_needed';
+                const canSubmitMilestone = !isDone && !isSubmitted && isActive;
+                const isExpanded = activeMilestoneSubmit === milestone.id;
+
+                return (
+                  <div key={milestone.id} className="px-5 py-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
+                          isDone ? 'bg-[#a2a3fc]' : isSubmitted ? 'bg-[#f0f0ff] border border-[#a2a3fc]' : needsRevision ? 'bg-[#fff3e0] border border-[#f59e0b]' : 'border border-[#d0d0d8]'
+                        }`}>
+                          {isDone && <CheckCircle className="w-3 h-3 text-white" />}
+                          {isSubmitted && <Clock className="w-2.5 h-2.5 text-[#a2a3fc]" />}
                         </div>
+                        <span className={`text-sm truncate ${isDone ? 'text-[#a0a0b0] line-through' : 'text-[#1f1f2e]'}`}>{desc}</span>
+                        {payout && <span className="text-[10px] text-[#a0a0b0] flex-shrink-0">{payout}</span>}
+                      </div>
+                      {canSubmitMilestone && !isExpanded && (
+                        <button
+                          onClick={() => { setActiveMilestoneSubmit(milestone.id); setMilestoneLink(''); setMilestoneNotes(''); }}
+                          className="text-xs text-[#a2a3fc] hover:text-[#7b7cee] font-medium flex-shrink-0 ml-2"
+                        >
+                          Submit
+                        </button>
+                      )}
+                      {canSubmitMilestone && isExpanded && (
+                        <button onClick={() => setActiveMilestoneSubmit(null)} className="text-xs text-[#a0a0b0] hover:text-[#6b6b80] flex-shrink-0 ml-2">Cancel</button>
+                      )}
+                      {isSubmitted && <span className="text-[10px] text-[#a2a3fc] flex-shrink-0 ml-2">Under review</span>}
+                      {needsRevision && !isExpanded && (
+                        <button
+                          onClick={() => { setActiveMilestoneSubmit(milestone.id); setMilestoneLink(''); setMilestoneNotes(''); }}
+                          className="text-xs text-[#f59e0b] hover:text-[#d97706] font-medium flex-shrink-0 ml-2"
+                        >
+                          Resubmit
+                        </button>
                       )}
                     </div>
+                    {needsRevision && revisionNote && !isExpanded && (
+                      <p className="text-xs text-[#f59e0b] mt-1 ml-8">{revisionNote}</p>
+                    )}
+                    {/* Inline submit form */}
+                    {isExpanded && (
+                      <div className="mt-3 ml-8 space-y-2">
+                        {needsRevision && revisionNote && (
+                          <p className="text-xs text-[#f59e0b] bg-[#fff8e1] rounded px-2 py-1">Feedback: {revisionNote}</p>
+                        )}
+                        <input
+                          type="url"
+                          value={milestoneLink}
+                          onChange={e => setMilestoneLink(e.target.value)}
+                          placeholder="Deliverable link (Google Drive, GitHub, etc.)"
+                          className="w-full px-3 py-2 border border-[#f0f0f5] rounded-lg text-sm focus:outline-none focus:border-[#a2a3fc]"
+                        />
+                        <textarea
+                          value={milestoneNotes}
+                          onChange={e => setMilestoneNotes(e.target.value)}
+                          rows={2}
+                          placeholder="Notes (optional)"
+                          className="w-full px-3 py-2 border border-[#f0f0f5] rounded-lg text-sm focus:outline-none focus:border-[#a2a3fc] resize-none"
+                        />
+                        <button
+                          onClick={() => handleSubmitMilestone(milestone.id)}
+                          disabled={milestoneSubmitting}
+                          className="px-4 py-1.5 bg-[#a2a3fc] text-white rounded-lg text-xs font-medium hover:bg-[#8b8cf0] disabled:opacity-50"
+                        >
+                          {milestoneSubmitting ? 'Submitting...' : 'Submit milestone'}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  {!milestone.completedAt && isActive && (
-                    <button
-                      onClick={() => handleCompleteMilestone(milestone.id)}
-                      className="px-3 py-1.5 bg-[#f0f0ff] text-[#a2a3fc] rounded-lg text-xs font-medium hover:bg-[#e8e8ff] transition-colors"
-                    >
-                      Mark Complete
-                    </button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
           </div>
         </div>
       )}

@@ -7,14 +7,23 @@ import { Send, Plus, ChevronDown, X, GripVertical, Check, Paperclip, FileText, G
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
+interface PlanTask {
+  id: string;
+  label: string;
+  tool?: string;
+  detail?: string;
+  done: boolean;
+}
+
 interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'tool' | 'status';
+  role: 'user' | 'assistant' | 'tool' | 'status' | 'thinking';
   content: string | null;
   toolName?: string;
   toolResult?: string;
   statusLabel?: string;
   statusPhase?: 'start' | 'done';
+  planTasks?: PlanTask[];
 }
 
 interface ToolStatusGroup {
@@ -137,7 +146,7 @@ export default function DashboardPage() {
   // Panel state
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(480);
-  const [panelTab, setPanelTab] = useState<'overview' | 'execution' | 'financial' | 'legal' | 'onboard' | 'messages'>('overview');
+  const [panelTab, setPanelTab] = useState<'overview' | 'execution' | 'financial' | 'legal' | 'onboard' | 'review'>('overview');
   const [execMessages, setExecMessages] = useState<any[]>([]);
   const [execMsgInput, setExecMsgInput] = useState('');
   const [execMsgLoading, setExecMsgLoading] = useState(false);
@@ -151,6 +160,7 @@ export default function DashboardPage() {
   const [saving, setSaving] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [pastedImages, setPastedImages] = useState<{ data: string; name: string }[]>([]); // base64 images
+  const [expandedThinking, setExpandedThinking] = useState<Set<string>>(new Set());
   const [contracts, setContracts] = useState<any[]>([]);
   const [expandedContract, setExpandedContract] = useState<any>(null);
   const [editingContractContent, setEditingContractContent] = useState('');
@@ -168,6 +178,7 @@ export default function DashboardPage() {
   const [obSaved, setObSaved] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const resizing = useRef(false);
   const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
@@ -218,7 +229,18 @@ export default function DashboardPage() {
     }, 60000);
     return () => clearInterval(interval);
   }, [selectedWU]);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  // Smart auto-scroll: only scroll if user is near the bottom
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distFromBottom < 200) {
+      // Use requestAnimationFrame to avoid layout thrashing during streaming
+      requestAnimationFrame(() => {
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+      });
+    }
+  }, [messages]);
 
   // Real-time message updates via WebSocket
   useMarketplaceEvent(MARKETPLACE_EVENTS.EXECUTION_MESSAGE_NEW, (data: any) => {
@@ -234,7 +256,7 @@ export default function DashboardPage() {
       if (msg.senderType !== 'company') {
         setExecMsgUnread(prev => prev + 1);
         // Auto-mark as read if messages tab is open
-        if (panelTab === 'messages') {
+        if (panelTab === 'review') {
           getToken().then(token => {
             if (token && activeExec) {
               fetch(`${API_URL}/api/executions/${activeExec.id}/messages/read-all`, {
@@ -250,7 +272,7 @@ export default function DashboardPage() {
 
   // Subscribe to execution room when messages tab is opened
   useEffect(() => {
-    if (panelTab === 'messages' && selectedWU) {
+    if (panelTab === 'review' && selectedWU) {
       const activeExec = selectedWU.executions?.find((e: any) => !['cancelled', 'failed', 'approved'].includes(e.status));
       if (activeExec && marketplaceSocket.isConnected()) {
         // Subscribe to execution room for real-time updates
@@ -766,9 +788,64 @@ export default function DashboardPage() {
             const ev = JSON.parse(line.slice(6));
             if (ev.type === 'text') {
               setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: (m.content || '') + ev.content } : m));
+            } else if (ev.type === 'thinking_start') {
+              // Insert thinking message BEFORE the assistant message so it renders above
+              const thinkingId = `think-${Date.now()}`;
+              // Auto-expand while actively thinking
+              setExpandedThinking(prev => new Set(prev).add(thinkingId));
+              setMessages(prev => {
+                const assistantIdx = prev.findIndex(m => m.id === aId);
+                const thinkMsg: Message = { id: thinkingId, role: 'thinking', content: '', statusLabel: 'Thinking...', toolName: 'thinking' };
+                if (assistantIdx >= 0) {
+                  const copy = [...prev];
+                  copy.splice(assistantIdx, 0, thinkMsg);
+                  return copy;
+                }
+                return [...prev, thinkMsg];
+              });
             } else if (ev.type === 'thinking') {
-              // Show chain-of-thought text as a thinking message
-              setMessages(prev => [...prev, { id: `think-${Date.now()}-${Math.random()}`, role: 'status', content: null, statusLabel: ev.content, statusPhase: 'done', toolName: 'thinking' }]);
+              // Stream thinking content into the thinking message
+              setMessages(prev => {
+                for (let i = prev.length - 1; i >= 0; i--) {
+                  if (prev[i].role === 'thinking') {
+                    const copy = [...prev];
+                    copy[i] = { ...copy[i], content: (copy[i].content || '') + ev.content };
+                    return copy;
+                  }
+                }
+                return [...prev, { id: `think-${Date.now()}`, role: 'thinking', content: ev.content, toolName: 'thinking' }];
+              });
+            } else if (ev.type === 'plan_tasks') {
+              // Planner created a task checklist — attach to the thinking message
+              const tasks: PlanTask[] = (ev.tasks || []).map((t: any) => ({ ...t, done: false }));
+              setMessages(prev => {
+                for (let i = prev.length - 1; i >= 0; i--) {
+                  if (prev[i].role === 'thinking') {
+                    const copy = [...prev];
+                    copy[i] = { ...copy[i], planTasks: tasks };
+                    return copy;
+                  }
+                }
+                return prev;
+              });
+            } else if (ev.type === 'plan_task_complete') {
+              // Executor completed a checklist item — check it off
+              const taskId = ev.taskId;
+              setMessages(prev => prev.map(m => {
+                if (m.role === 'thinking' && m.planTasks) {
+                  return { ...m, planTasks: m.planTasks.map(t => t.id === taskId ? { ...t, done: true } : t) };
+                }
+                return m;
+              }));
+            } else if (ev.type === 'thinking_end') {
+              // Thinking complete — keep expanded if there are tasks, update label
+              setMessages(prev => prev.map(m => m.role === 'thinking' && !m.statusPhase ? { ...m, statusPhase: 'done', statusLabel: m.planTasks?.length ? 'Plan' : 'Thought process' } : m));
+              // Don't collapse if there are plan tasks (user wants to see progress)
+              setMessages(prev => {
+                const hasActiveTasks = prev.some(m => m.role === 'thinking' && m.planTasks?.some(t => !t.done));
+                if (!hasActiveTasks) setExpandedThinking(new Set());
+                return prev;
+              });
             } else if (ev.type === 'planning_progress') {
               // Granular progress from within planning tools (e.g., which contract is being drafted)
               setPlanningProgress(prev => {
@@ -1019,7 +1096,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4">
+        <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-3 md:px-6 py-4">
           {messages.length === 0 ? (
             <div className="h-full flex items-center justify-center">
               <div className="max-w-md space-y-4">
@@ -1050,6 +1127,71 @@ export default function DashboardPage() {
                 }
                 if (msg.role === 'status') return null; // Status indicators moved to header
                 if (msg.role === 'tool') return null; // tool results are hidden — agent synthesizes them
+                
+                // Thinking/Plan messages — collapsible block with optional checklist
+                if (msg.role === 'thinking') {
+                  const isExpanded = expandedThinking.has(msg.id);
+                  const isDone = msg.statusPhase === 'done';
+                  const isActiveThinking = streaming && !isDone;
+                  const hasTasks = !!(msg.planTasks && msg.planTasks.length > 0);
+                  const completedCount = msg.planTasks?.filter(t => t.done).length || 0;
+                  const totalCount = msg.planTasks?.length || 0;
+                  const hasContent = !!(msg.content && msg.content.length > 0);
+                  
+                  // Label: "Thinking..." while active, "Plan (3/7)" with tasks, "Thought process" otherwise
+                  const label = isActiveThinking && !hasTasks
+                    ? 'Thinking...'
+                    : hasTasks
+                      ? `Plan${isDone ? '' : ` (${completedCount}/${totalCount})`}`
+                      : (msg.statusLabel || 'Thought process');
+
+                  return (
+                    <div key={msg.id} className="pl-0.5 mb-1">
+                      <button
+                        onClick={() => setExpandedThinking(prev => {
+                          const next = new Set(prev);
+                          if (next.has(msg.id)) next.delete(msg.id);
+                          else next.add(msg.id);
+                          return next;
+                        })}
+                        className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-500 transition-colors select-none"
+                      >
+                        <span className={`inline-block transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} style={{ fontSize: '8px' }}>&#9654;</span>
+                        <span>{label}</span>
+                        {isActiveThinking && <span className="inline-block w-1 h-2.5 bg-slate-300 ml-0.5 animate-pulse rounded-sm" />}
+                      </button>
+                      {isExpanded && (
+                        <div className="mt-1 ml-3 pl-2 border-l border-slate-200/60">
+                          {/* Brief reasoning text */}
+                          {hasContent && (
+                            <p className="text-[11px] text-slate-400 whitespace-pre-wrap leading-relaxed font-mono mb-1.5">
+                              {msg.content}
+                            </p>
+                          )}
+                          {/* Task checklist */}
+                          {hasTasks && (
+                            <div className="space-y-0.5">
+                              {msg.planTasks!.map(task => (
+                                <div key={task.id} className="flex items-start gap-1.5 text-[11px]">
+                                  <span className={`mt-px flex-shrink-0 ${task.done ? 'text-emerald-500' : 'text-slate-300'}`}>
+                                    {task.done ? '\u2713' : '\u25CB'}
+                                  </span>
+                                  <span className={task.done ? 'text-slate-400 line-through' : 'text-slate-500'}>
+                                    {task.label}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {/* Loading state */}
+                          {!hasContent && !hasTasks && isActiveThinking && (
+                            <p className="text-[11px] text-slate-300 font-mono animate-pulse">...</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
                 
                 return (
                   <div key={msg.id} className="pl-0.5">
@@ -1189,10 +1331,10 @@ export default function DashboardPage() {
           {/* Tabs */}
           {selectedWU && (
             <div className="px-4 pt-2 flex gap-3 border-b border-slate-100 flex-shrink-0 overflow-x-auto">
-              {['overview', 'execution', 'financial', 'legal', 'onboard', 'messages'].map(tab => (
-                <button key={tab} onClick={() => { setPanelTab(tab as any); if (tab === 'legal') loadContracts(); if (tab === 'messages') loadExecMessages(); }}
+              {['overview', 'execution', 'financial', 'legal', 'onboard', 'review'].map(tab => (
+                <button key={tab} onClick={() => { setPanelTab(tab as any); if (tab === 'legal') loadContracts(); if (tab === 'review') loadExecMessages(); }}
                   className={`pb-2 text-xs capitalize whitespace-nowrap ${panelTab === tab ? 'text-slate-900 border-b-2 border-violet-400' : 'text-slate-400 hover:text-slate-600'}`}>
-                  {tab === 'messages' && execMsgUnread > 0 ? <>{tab} <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white rounded-full text-[10px]">{execMsgUnread}</span></> : tab}
+                  {tab === 'review' && execMsgUnread > 0 ? <>{tab} <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white rounded-full text-[10px]">{execMsgUnread}</span></> : tab}
                 </button>
               ))}
             </div>
@@ -1776,16 +1918,66 @@ export default function DashboardPage() {
                 )}
 
                 {/* Messages Tab */}
-                {panelTab === 'messages' && (
+                {panelTab === 'review' && (
                   <div className="space-y-3">
+                    {/* Milestone Review Section */}
                     {(() => {
-                      // Find the active execution for this WU
+                      const activeExec = selectedWU?.executions?.find((e: any) => !['cancelled', 'failed', 'approved'].includes(e.status));
+                      const milestones = activeExec?.milestones?.filter((m: any) => m.status === 'submitted') || [];
+                      if (milestones.length > 0) {
+                        return (
+                          <div className="mb-4">
+                            <p className="text-xs font-medium text-slate-500 mb-2">Submitted milestones</p>
+                            <div className="space-y-2">
+                              {milestones.map((m: any) => (
+                                <div key={m.id} className="bg-slate-50 rounded-lg p-3">
+                                  <p className="text-xs text-slate-700 font-medium">{m.template?.description || 'Milestone'}</p>
+                                  {m.evidenceUrl && <a href={m.evidenceUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-violet-500 hover:underline block mt-1">View deliverable</a>}
+                                  {m.fileUrls?.length > 0 && <p className="text-[11px] text-slate-400 mt-0.5">{m.fileUrls.length} file(s) attached</p>}
+                                  {m.notes && <p className="text-[11px] text-slate-400 mt-1">{m.notes}</p>}
+                                  <div className="flex gap-2 mt-2">
+                                    <button
+                                      onClick={async () => {
+                                        const token = await getToken(); if (!token) return;
+                                        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/executions/${activeExec.id}/milestones/${m.id}/review`, {
+                                          method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ verdict: 'approved' }),
+                                        });
+                                        loadPanel();
+                                      }}
+                                      className="text-[11px] px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded font-medium hover:bg-emerald-100"
+                                    >Approve</button>
+                                    <button
+                                      onClick={async () => {
+                                        const feedback = prompt('Revision feedback:');
+                                        if (!feedback) return;
+                                        const token = await getToken(); if (!token) return;
+                                        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/executions/${activeExec.id}/milestones/${m.id}/review`, {
+                                          method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ verdict: 'revision_needed', feedback }),
+                                        });
+                                        loadPanel();
+                                      }}
+                                      className="text-[11px] px-2.5 py-1 bg-amber-50 text-amber-600 rounded font-medium hover:bg-amber-100"
+                                    >Revise</button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+
+                    {/* Messages Section */}
+                    {(() => {
                       const activeExec = selectedWU?.executions?.find((e: any) => !['cancelled', 'failed', 'approved'].includes(e.status));
                       if (!activeExec) {
                         return (
                           <div className="py-8 text-center">
-                            <p className="text-xs text-slate-400">No active contractor to message.</p>
-                            <p className="text-[11px] text-slate-300 mt-1">Messages are available when a contractor is assigned and working.</p>
+                            <p className="text-xs text-slate-400">No active contractor.</p>
+                            <p className="text-[11px] text-slate-300 mt-1">Messages and reviews appear when a contractor is assigned.</p>
                           </div>
                         );
                       }

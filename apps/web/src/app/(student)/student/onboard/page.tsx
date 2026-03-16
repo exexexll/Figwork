@@ -342,21 +342,42 @@ export default function StudentOnboardingPage() {
     }
   }
 
-  async function handleTaxStart() {
+  // Tax form state
+  const [taxForm, setTaxForm] = useState({
+    legalName: '',
+    businessName: '',
+    taxClassification: 'individual',
+    address: '',
+    city: '',
+    state: '',
+    zip: '',
+    tin: '',
+    tinType: 'ssn' as 'ssn' | 'ein',
+    certify: false,
+  });
+
+  async function handleTaxSubmit() {
+    if (!taxForm.legalName || !taxForm.address || !taxForm.city || !taxForm.state || !taxForm.zip || !taxForm.tin || !taxForm.certify) {
+      setError('Please fill all required fields and certify');
+      return;
+    }
     setActionLoading(true);
+    setError(null);
     try {
       const token = await getToken();
       if (!token) return;
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/students/tax/form`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/students/tax/submit`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(taxForm),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.url) window.open(data.url, '_blank');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to submit tax form');
       }
       goNext();
-    } catch (err) {
-      setError('Failed to start tax form');
+    } catch (err: any) {
+      setError(err.message || 'Failed to submit tax form');
     } finally {
       setActionLoading(false);
     }
@@ -891,38 +912,91 @@ export default function StudentOnboardingPage() {
         {currentStepConfig?.stepType === 'tax' && (
           <div>
             <h1 className="text-3xl font-bold text-[#1f1f2e] mb-2">Tax information</h1>
-            <p className="text-[#6b6b80] mb-8">
-              {currentStepConfig.description ||
-                'Required for US tax reporting. Your W-9 info stays encrypted and is only used for 1099 generation.'}
+            <p className="text-[#6b6b80] mb-6">
+              Required for US tax reporting (W-9). You&apos;ll receive a 1099-NEC if you earn over $600/year.
             </p>
 
-            <div className="p-6 bg-white rounded-xl border border-[#e8e4f0] mb-6">
-              <div className="flex items-center gap-4 mb-4">
-                <div
-                  className="w-12 h-12 rounded-xl flex items-center justify-center"
-                  style={{ background: 'var(--gradient-fig-subtle)' }}
-                >
-                  <Receipt className="w-6 h-6 text-[#a78bfa]" />
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-[#1f1f2e] mb-1">Legal name (as shown on tax return) *</label>
+                <input type="text" value={taxForm.legalName} onChange={e => setTaxForm(p => ({ ...p, legalName: e.target.value }))}
+                  className="w-full px-3 py-2.5 rounded-lg border border-[#e0dce8] focus:border-[#a78bfa] focus:ring-1 focus:ring-[#a78bfa] outline-none text-sm" placeholder="John Doe" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#1f1f2e] mb-1">Business name (if different)</label>
+                <input type="text" value={taxForm.businessName} onChange={e => setTaxForm(p => ({ ...p, businessName: e.target.value }))}
+                  className="w-full px-3 py-2.5 rounded-lg border border-[#e0dce8] focus:border-[#a78bfa] focus:ring-1 focus:ring-[#a78bfa] outline-none text-sm" placeholder="Optional" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#1f1f2e] mb-1">Tax classification *</label>
+                <select value={taxForm.taxClassification} onChange={e => setTaxForm(p => ({ ...p, taxClassification: e.target.value }))}
+                  className="w-full px-3 py-2.5 rounded-lg border border-[#e0dce8] focus:border-[#a78bfa] outline-none text-sm bg-white">
+                  <option value="individual">Individual / Sole proprietor</option>
+                  <option value="llc_single">LLC (single member)</option>
+                  <option value="llc_multi">LLC (multi member)</option>
+                  <option value="c_corp">C Corporation</option>
+                  <option value="s_corp">S Corporation</option>
+                  <option value="partnership">Partnership</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-[#1f1f2e] mb-1">TIN type *</label>
+                  <select value={taxForm.tinType} onChange={e => setTaxForm(p => ({ ...p, tinType: e.target.value as 'ssn' | 'ein' }))}
+                    className="w-full px-3 py-2.5 rounded-lg border border-[#e0dce8] focus:border-[#a78bfa] outline-none text-sm bg-white">
+                    <option value="ssn">SSN</option>
+                    <option value="ein">EIN</option>
+                  </select>
                 </div>
                 <div>
-                  <h3 className="font-semibold text-[#1f1f2e]">W-9 Tax Form</h3>
-                  <p className="text-sm text-[#6b6b80]">Secure collection via Stripe Tax</p>
+                  <label className="block text-sm font-medium text-[#1f1f2e] mb-1">{taxForm.tinType === 'ssn' ? 'Social Security Number' : 'Employer ID Number'} *</label>
+                  <input type="password" value={taxForm.tin} onChange={e => setTaxForm(p => ({ ...p, tin: e.target.value }))}
+                    className="w-full px-3 py-2.5 rounded-lg border border-[#e0dce8] focus:border-[#a78bfa] focus:ring-1 focus:ring-[#a78bfa] outline-none text-sm"
+                    placeholder={taxForm.tinType === 'ssn' ? '___-__-____' : '__-_______'} maxLength={11} />
                 </div>
               </div>
-              <p className="text-sm text-[#a0a0b0]">
-                You&apos;ll receive a 1099-NEC if you earn over $600 in a calendar year.
-              </p>
+              <div>
+                <label className="block text-sm font-medium text-[#1f1f2e] mb-1">Street address *</label>
+                <input type="text" value={taxForm.address} onChange={e => setTaxForm(p => ({ ...p, address: e.target.value }))}
+                  className="w-full px-3 py-2.5 rounded-lg border border-[#e0dce8] focus:border-[#a78bfa] focus:ring-1 focus:ring-[#a78bfa] outline-none text-sm" placeholder="123 Main St" />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-[#1f1f2e] mb-1">City *</label>
+                  <input type="text" value={taxForm.city} onChange={e => setTaxForm(p => ({ ...p, city: e.target.value }))}
+                    className="w-full px-3 py-2.5 rounded-lg border border-[#e0dce8] focus:border-[#a78bfa] focus:ring-1 focus:ring-[#a78bfa] outline-none text-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#1f1f2e] mb-1">State *</label>
+                  <input type="text" value={taxForm.state} onChange={e => setTaxForm(p => ({ ...p, state: e.target.value }))}
+                    className="w-full px-3 py-2.5 rounded-lg border border-[#e0dce8] focus:border-[#a78bfa] focus:ring-1 focus:ring-[#a78bfa] outline-none text-sm" maxLength={2} placeholder="CA" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#1f1f2e] mb-1">ZIP *</label>
+                  <input type="text" value={taxForm.zip} onChange={e => setTaxForm(p => ({ ...p, zip: e.target.value }))}
+                    className="w-full px-3 py-2.5 rounded-lg border border-[#e0dce8] focus:border-[#a78bfa] focus:ring-1 focus:ring-[#a78bfa] outline-none text-sm" maxLength={10} placeholder="94105" />
+                </div>
+              </div>
             </div>
 
-            <button
-              onClick={handleTaxStart}
-              disabled={actionLoading}
+            <label className="flex items-start gap-2.5 mb-6 cursor-pointer">
+              <input type="checkbox" checked={taxForm.certify} onChange={e => setTaxForm(p => ({ ...p, certify: e.target.checked }))}
+                className="mt-0.5 w-4 h-4 rounded border-[#d0cdd8] accent-[#a78bfa]" />
+              <span className="text-xs text-[#6b6b80] leading-relaxed">
+                Under penalties of perjury, I certify that the TIN I provided is correct, I am not subject to backup withholding, and I am a U.S. person.
+              </span>
+            </label>
+
+            <button onClick={handleTaxSubmit} disabled={actionLoading || !taxForm.certify}
               className="w-full py-3.5 rounded-xl text-white font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
-              style={{ background: 'var(--gradient-fig)' }}
-            >
-              {actionLoading ? 'Starting...' : 'Complete Tax Form'}
+              style={{ background: 'var(--gradient-fig)' }}>
+              {actionLoading ? 'Submitting...' : 'Submit Tax Information'}
               <ArrowRight className="w-4 h-4" />
             </button>
+            <p className="text-[10px] text-[#a0a0b0] text-center mt-3">
+              <Lock className="w-3 h-3 inline mr-1" />Your tax information is encrypted and only used for 1099 generation.
+            </p>
           </div>
         )}
 

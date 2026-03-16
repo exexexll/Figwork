@@ -124,8 +124,20 @@ export default function TaskDetailPage() {
       if (!token) return;
       const result = await acceptTask(taskId, token);
       track(EVENTS.TASK_ACCEPTED, { workUnitId: taskId, requiresScreening: result.requiresScreening });
-      // Skip onboarding, go directly to execution page
-      router.push(`/student/executions/${result.id}`);
+
+      // Route based on what's required:
+      // 1. If screening required → go to interview page
+      if (result.requiresScreening && result.interviewToken) {
+        router.push(`/interview/${result.interviewToken}`);
+      }
+      // 2. If task has onboarding page → go to onboarding first
+      else if (result.hasOnboarding) {
+        router.push(`/student/executions/${result.id}/onboard`);
+      }
+      // 3. Otherwise → go directly to execution page
+      else {
+        router.push(`/student/executions/${result.id}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to accept task');
     } finally {

@@ -20,22 +20,68 @@ const COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'
 function autoLayout(nodes: WUNode[], conns: Connection[]): Record<string, Pos> {
   if (!nodes.length) return {};
   const pos: Record<string, Pos> = {};
-  const deps = new Map<string, string[]>();
-  nodes.forEach(n => deps.set(n.id, conns.filter(c => c.to === n.id).map(c => c.from)));
-  const layers: string[][] = []; const placed = new Set<string>();
-  const l0 = nodes.filter(n => !(deps.get(n.id) || []).length).map(n => n.id);
-  if (l0.length) { layers.push(l0); l0.forEach(id => placed.add(id)); }
-  let iter = nodes.length + 1;
-  while (placed.size < nodes.length && iter-- > 0) {
-    const next: string[] = [];
-    for (const n of nodes) if (!placed.has(n.id) && (deps.get(n.id) || []).every(d => placed.has(d))) next.push(n.id);
-    if (!next.length) for (const n of nodes) if (!placed.has(n.id)) next.push(n.id);
-    if (!next.length) break;
-    layers.push(next); next.forEach(id => placed.add(id));
+  
+  // Build dependency graph
+  const inDeps = new Map<string, string[]>(); // what each node depends on
+  const outDeps = new Map<string, string[]>(); // what depends on each node
+  const nodeIds = new Set(nodes.map(n => n.id));
+  nodes.forEach(n => { inDeps.set(n.id, []); outDeps.set(n.id, []); });
+  for (const c of conns) {
+    if (nodeIds.has(c.from) && nodeIds.has(c.to)) {
+      inDeps.get(c.to)!.push(c.from);
+      outDeps.get(c.from)!.push(c.to);
+    }
   }
-  for (let li = 0; li < layers.length; li++)
-    for (let ni = 0; ni < layers[li].length; ni++)
-      pos[layers[li][ni]] = { x: 30 + ni * (NODE_W + 40), y: 30 + li * (NODE_H + 50) };
+
+  // Assign layers using longest-path layering (better for branched graphs)
+  const layerMap = new Map<string, number>();
+  const placed = new Set<string>();
+
+  // Topological sort + longest path from roots
+  function assignLayer(id: string, visited = new Set<string>()): number {
+    if (layerMap.has(id)) return layerMap.get(id)!;
+    if (visited.has(id)) return 0; // cycle guard
+    visited.add(id);
+    const deps = inDeps.get(id) || [];
+    const layer = deps.length === 0 ? 0 : Math.max(...deps.map(d => assignLayer(d, visited) + 1));
+    layerMap.set(id, layer);
+    return layer;
+  }
+  nodes.forEach(n => assignLayer(n.id));
+
+  // Group nodes by layer
+  const layers: string[][] = [];
+  Array.from(layerMap.entries()).forEach(([id, layer]) => {
+    while (layers.length <= layer) layers.push([]);
+    layers[layer].push(id);
+  });
+  // Add any unplaced nodes to layer 0
+  for (const n of nodes) {
+    if (!layerMap.has(n.id)) {
+      if (!layers.length) layers.push([]);
+      layers[0].push(n.id);
+    }
+  }
+
+  // Layout: center each layer horizontally, spread vertically
+  const COL_GAP = NODE_W + 60;  // horizontal gap between parallel nodes
+  const ROW_GAP = NODE_H + 80;  // vertical gap between layers
+  const maxLayerWidth = Math.max(...layers.map(l => l.length));
+
+  for (let li = 0; li < layers.length; li++) {
+    const layer = layers[li];
+    const layerWidth = layer.length * COL_GAP;
+    const totalWidth = maxLayerWidth * COL_GAP;
+    const offsetX = (totalWidth - layerWidth) / 2; // center the layer
+    
+    for (let ni = 0; ni < layer.length; ni++) {
+      pos[layer[ni]] = {
+        x: 30 + offsetX + ni * COL_GAP,
+        y: 30 + li * ROW_GAP,
+      };
+    }
+  }
+
   return pos;
 }
 

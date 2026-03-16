@@ -22,7 +22,7 @@ MODES:
 
 1. SCOPE DESIGNER — creating work/hiring.
 Ask the goal first, then decompose into deliverables. Write detailed specs (2+ paragraphs each). Work units = deliverables, not people. After confirmation: create tasks, set criteria, add milestones, estimate cost. For 2+ tasks: call setup_dependency_chain + create_workflow_group.
-Planning chain: plan_analyze → plan_decompose → plan_price → plan_legal → plan_execute (run ALL without stopping). After plan_execute: call list_work_units, setup_dependency_chain, create_workflow_group.
+Planning chain: plan_analyze → plan_decompose → plan_price → plan_legal → plan_execute (run ALL without stopping). After plan_execute: call list_work_units, then setup_parallel_dependencies (for branched) or setup_dependency_chain (for sequential), then create_workflow_group.
 
 2. OPERATIONS — monitoring/reviews/status.
 Use get_monitoring_summary, list_all_executions, review_submission, request_pow_check.
@@ -40,8 +40,8 @@ Use get_billing, calculate_pricing (auto web-searches market rates), estimate_co
 STEPS:
 1. list_workflow_groups — check existing groups
 2. list_work_units — see all tasks with IDs, deps, contractors
-3. MODIFY existing workflow: use setup_dependency_chain or set_publish_schedule. Do NOT create new group.
-4. NEW workflow only: setup_dependency_chain + create_workflow_group (with WU IDs, never empty).
+3. MODIFY existing workflow: use setup_dependency_chain, setup_parallel_dependencies, or set_publish_schedule. Do NOT create new group.
+4. NEW workflow only: setup_dependency_chain or setup_parallel_dependencies + create_workflow_group (with WU IDs, never empty).
 
 RULES:
 
@@ -51,29 +51,212 @@ WORKFLOW GROUPS:
 - create_workflow_group MUST include workUnitIds.
 
 DEPENDENCIES:
-- setup_dependency_chain: pass ordered IDs for sequential chains (ONE call).
-- set_publish_schedule: for individual task scheduling or complex non-linear deps.
+- setup_parallel_dependencies: PREFERRED tool for ALL dependency work. Sets multiple deps per task in ONE call. Supports parallel tracks, branching, convergence, per-edge condition/sharing. Use this for ANY workflow with 3+ tasks.
+- setup_dependency_chain: ONLY for strictly sequential A→B→C chains where every task has exactly 1 predecessor. Do NOT use when user asks for parallel/branched/phased workflows.
+- set_publish_schedule: for individual task scheduling or adding one dependency to one task.
+- IMPORTANT: When user says "parallel", "branched", "phased", or "tracks" → ALWAYS use setup_parallel_dependencies, NEVER setup_dependency_chain.
 - Conditions: "completed" (verified output → next job), "published" (concurrent), "failed" (with onFailure: publish/cancel/notify).
-- Sharing: "full" (spec + deliverables), "summary" (title + status), "none".
-- AND/OR logic: AND = all deps met, OR = any one.
+- Sharing: "full" for design→build handoffs (spec + deliverables flow), "summary" (title + status) for awareness, "none" for independent.
+- AND/OR logic: AND = all deps met, OR = any one. Default is AND when multiple dependencies exist.
 
 IDS: Short hex IDs (e.g. "d9e7ec83") and titles both resolve. Prefer short IDs from previous tool results.
 
-CONTEXT: Messages with [CONTEXT: Currently viewing "..." (ID: ...)] — all operations apply to THAT work unit only.
+CONTEXT: Messages with [CONTEXT: Currently viewing "..." (ID: ...)] indicate which work unit the sidebar shows. This is a HINT, not a restriction:
+- If the user says "update this task" or "check this" without specifying which → apply to the context work unit.
+- If the user says "all tasks", "every task", "change all", or mentions specific IDs → apply to ALL matching tasks, NOT just the context one.
+- If the user gives an explicit ID or title → use that, ignore context.
+- NEVER refuse to edit multiple tasks because of context. You have full access to ALL work units via tools.
 
 BEHAVIOR:
 - After completing the request, STOP. Don't chain extra actions unless asked.
 - NEVER delete or archive unless the user EXPLICITLY says "delete" or "archive". Activate ≠ delete. "All that matters" ≠ delete.
-- NEVER reverse an action you just performed. If you just restored a task, do NOT archive it again. If you just created something, do NOT delete it.
-- When the user's message is short or a single word (e.g. "yes", "homepage", "first one", "do it", "sure", "all"), it is ALWAYS a direct reply to YOUR previous question or options. Re-read your last message, find the question you asked, and map their answer to one of the options. NEVER interpret a short reply as a brand new request. Examples: if you asked "link to homepage or about page?" and user says "homepage", that means "use the homepage URL." If you asked "price or create task?" and user says "price", that means "price it."
+- NEVER reverse an action you just performed.
+- When the user's message is short (e.g. "yes", "homepage", "do it"), it is a direct reply to YOUR previous question. Map their answer to one of your options.
 - Ask ONE clarifying question at a time, not a list.
-- web_search: synthesize results naturally, don't dump raw data.
-- Uploaded files: read thoroughly, reference specific details.
-- If a tool returns an error, read the error message carefully and either retry with corrected params or explain the issue to the user.
-- NEVER call a tool that doesn't exist. If you're unsure, call list_work_units or get_monitoring_summary first.
-- When creating multiple related tasks, ALWAYS call them sequentially (create A, then B, then C) — never assume IDs.
-- When setting up dependencies, ALWAYS call list_work_units first to get the real IDs, then call setup_dependency_chain with those IDs.
-- For destructive actions (delete, archive, cancel), ALWAYS confirm with the user first by stating exactly what will happen.`;
+- When user says "all tasks" or "change all" → call list_work_units, then loop through and update each one. Do NOT say "I can only edit one task" — that is WRONG.
+- If a tool returns an error, retry with corrected params or explain the issue.
+- NEVER say a tool "isn't available" without checking. You have access to: create_contract, set_onboarding, generate_link, update_work_unit, and all other tools in your tool list.
+- For destructive actions (delete, archive, cancel), ALWAYS confirm first.`;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ * THINKING CHAIN CONTROLLER
+ * 
+ * 3-layer system that decides whether to activate deep reasoning:
+ * 
+ *   Layer 1 — Structural pre-filter   (< 1ms, zero cost)
+ *             Catches obvious skip/think cases via message shape.
+ * 
+ *   Layer 2 — LLM classifier          (~120ms, gpt-4o-mini, ~20 tokens out)
+ *             Cheap model judges ambiguous messages with context.
+ *             Returns complexity 1-10 + think boolean + depth hint.
+ * 
+ *   Layer 3 — Adaptive thinking depth  (set by classifier)
+ *             Controls how deep the reasoning chain goes:
+ *               light  = 600 tokens, temp 0.2  (quick sanity check)
+ *               medium = 1500 tokens, temp 0.3 (structured plan)
+ *               deep   = 3000 tokens, temp 0.4 (full decomposition)
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+type ThinkingDecision = {
+  shouldThink: boolean;
+  depth: 'light' | 'medium' | 'deep';
+  reason?: string;
+};
+
+function structuralPreFilter(
+  message: string,
+  recentHistory?: Array<{ role: string; content?: string | null; toolCalls?: any }>
+): ThinkingDecision | 'ask_llm' {
+  const msg = message.toLowerCase().trim();
+  const words = msg.split(/\s+/);
+  const wc = words.length;
+
+  // ── INSTANT SKIP ──
+  // ≤4 words, single-word replies, read-only starts, option picks
+  if (wc <= 4) return { shouldThink: false, depth: 'light' };
+  if (/^(yes|no|ok|sure|yep|nope|y|n|k|go|do it|confirm|stop|cancel|done)\.?$/i.test(msg))
+    return { shouldThink: false, depth: 'light' };
+  if (/^(show|list|check|get|read|view|see|what|how much|status|display)\b/i.test(msg))
+    return { shouldThink: false, depth: 'light' };
+  if (/^(option|choice|pick|select)?\s*[abc123]\.?$/i.test(msg))
+    return { shouldThink: false, depth: 'light' };
+  // Single entity + single action (e.g. "create a logo task", "assign john to task X")
+  if (wc <= 10 && !msg.includes(' and ') && !msg.includes(' then '))
+    return { shouldThink: false, depth: 'light' };
+
+  // ── INSTANT THINK — DEEP ──
+  // Unmistakable multi-step orchestration
+  const actionSet = new Set<string>();
+  for (const v of ['create', 'update', 'delete', 'set', 'assign', 'publish', 'move',
+    'connect', 'schedule', 'reorganize', 'restructure', 'migrate', 'deploy', 'chain', 'link']) {
+    if (msg.includes(v)) actionSet.add(v);
+  }
+
+  // 3+ distinct actions = deep thinking
+  if (actionSet.size >= 3)
+    return { shouldThink: true, depth: 'deep', reason: `${actionSet.size} distinct actions detected` };
+
+  // Workflow orchestration language
+  if (msg.includes('workflow') && /parallel|branch|reorganiz|restructur|phase|track/.test(msg))
+    return { shouldThink: true, depth: 'deep', reason: 'workflow orchestration' };
+
+  // Explicit planning intent with substance
+  if (wc > 12 && /\b(plan|decompos|break\s*(it\s+)?down|architect|design\s+the)\b/.test(msg))
+    return { shouldThink: true, depth: 'deep', reason: 'planning/decomposition request' };
+
+  // ── INSTANT THINK — MEDIUM ──
+  // Batch scope + action
+  if ((words.includes('all') || words.includes('every') || words.includes('each')) && actionSet.size >= 1 && wc > 8)
+    return { shouldThink: true, depth: 'medium', reason: 'batch operation' };
+
+  // Conditional logic in the request
+  if (wc > 15 && /\b(if|unless|depending|based on|when.*then)\b/.test(msg) && actionSet.size >= 1)
+    return { shouldThink: true, depth: 'medium', reason: 'conditional logic' };
+
+  // Very long + multi-clause
+  const clauses = (msg.match(/[,;]|\band\b|\bthen\b|\balso\b|\bplus\b|\bafter\b/g) || []).length;
+  if (wc > 50 && clauses >= 3)
+    return { shouldThink: true, depth: 'medium', reason: 'long multi-clause message' };
+
+  // Heavy recent tool usage (continuation of complex flow)
+  if (recentHistory?.length) {
+    const recentToolCount = recentHistory
+      .filter(m => m.toolCalls && Array.isArray(m.toolCalls))
+      .reduce((sum, m) => sum + (m.toolCalls as any[]).length, 0);
+    if (recentToolCount >= 8 && wc > 12)
+      return { shouldThink: true, depth: 'medium', reason: 'complex conversation continuation' };
+  }
+
+  // ── AMBIGUOUS → send to LLM ──
+  if (wc >= 6) return 'ask_llm';
+
+  return { shouldThink: false, depth: 'light' };
+}
+
+async function shouldUseThinkingChain(
+  message: string,
+  toolCount: number,
+  recentHistory?: Array<{ role: string; content?: string | null; toolCalls?: any }>
+): Promise<ThinkingDecision> {
+  // Layer 1: Structural pre-filter
+  const preResult = structuralPreFilter(message, recentHistory);
+  if (preResult !== 'ask_llm') return preResult;
+
+  // Layer 2: LLM classifier (gpt-4o-mini — fast, cheap, accurate for classification)
+  try {
+    const openai = getOpenAIClient();
+
+    // Compact context: last assistant message + tool names used
+    let ctx = '';
+    if (recentHistory?.length) {
+      for (const m of recentHistory.slice(-3)) {
+        if (m.role === 'assistant' && m.content) {
+          // Was the last assistant message a question? If so, user is likely just answering it.
+          const endsWithQuestion = m.content.trim().endsWith('?');
+          if (endsWithQuestion) ctx += `[Assistant asked a question]\n`;
+          else ctx += `A: ${m.content.slice(0, 120)}...\n`;
+        }
+        const tools = (m.toolCalls as any[] || []).map((tc: any) => tc.function?.name).filter(Boolean);
+        if (tools.length) ctx += `[Used: ${tools.join(', ')}]\n`;
+      }
+    }
+
+    const res = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `Classify if this user message needs multi-step reasoning before an AI agent acts on it.
+
+Return JSON: {"think":bool,"depth":"light"|"medium"|"deep","reason":"<8 words max>"}
+
+THINK = true when the agent must plan BEFORE acting:
+- Coordinating 3+ entities (tasks, people, dependencies)
+- Ordering operations that depend on each other  
+- Restructuring/reorganizing existing data
+- Ambiguous requests where wrong interpretation = wasted actions
+- Batch operations with per-item conditions
+- Trade-off decisions (the user said "reasonable" / "best" / "optimal")
+
+THINK = false:
+- Single CRUD operation (create/read/update/delete one thing)
+- Direct reply to assistant's question (even if 10+ words)
+- Info retrieval ("show", "list", "what is", "how much")
+- Confirmation or option selection
+- Correction of a single field ("no, change the price to $50")
+
+DEPTH guide:
+- light: Quick sanity check (1 entity, 1-2 steps, but needs a moment to reason)
+- medium: Structured plan (3-5 entities, sequencing matters, batch with conditions)
+- deep: Full decomposition (6+ entities, parallel tracks, complex dependencies, project-level)`,
+        },
+        {
+          role: 'user',
+          content: `${ctx}User: "${message.slice(0, 400)}"`,
+        },
+      ],
+      max_completion_tokens: 60,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+    });
+
+    const raw = res.choices[0]?.message?.content || '{}';
+    const parsed = JSON.parse(raw);
+    return {
+      shouldThink: parsed.think === true,
+      depth: ['light', 'medium', 'deep'].includes(parsed.depth) ? parsed.depth : 'medium',
+      reason: parsed.reason || undefined,
+    };
+  } catch (err) {
+    // Fallback: conservative heuristic
+    const wc = message.split(/\s+/).length;
+    const hasAction = /\b(create|update|set|assign|reorganize|plan|change|modify|schedule|publish)\b/i.test(message);
+    if (wc > 20 && hasAction) return { shouldThink: true, depth: 'medium', reason: 'fallback heuristic' };
+    return { shouldThink: false, depth: 'light' };
+  }
 }
 
 async function getCompanyContext(companyId: string) {
@@ -474,10 +657,10 @@ Format as bullet points. Be specific — include numbers, IDs, URLs. Skip pleasa
     let totalToolCalls = 0;
     let consecutiveIdenticalLoops = 0; // tracks if the model is stuck in a loop
     let lastLoopToolNames = ''; // fingerprint of last loop's tool calls
-    const MAX_TOTAL_TOOL_CALLS = 80; // Safety cap — high enough for complex multi-step projects
-    const MAX_IDENTICAL_CALLS = 2; // Stop if the same exact call repeats this many times
-    const MAX_READ_TOOL_CALLS = 2; // Read-only tools (get_*, list_*) max calls per name
-    const MAX_WRITE_TOOL_CALLS = 5; // Write tools max calls per name (e.g. create_work_unit × 5 for multi-task)
+    const MAX_TOTAL_TOOL_CALLS = 300; // No practical limit for batch operations
+    const MAX_IDENTICAL_CALLS = 3; // Stop if the same EXACT call (same args) repeats
+    const MAX_READ_TOOL_CALLS = 15; // Read-only tools
+    const MAX_WRITE_TOOL_CALLS = 50; // Write tools — enough for 20+ tasks × multiple ops each
 
     // Keepalive: send a comment every 15s to prevent proxy/browser timeouts during long tool calls
     keepalive = setInterval(() => {
@@ -487,7 +670,7 @@ Format as bullet points. Be specific — include numbers, IDs, URLs. Skip pleasa
     try {
       // Agent loop — runs until the agent is done or safety cap hit
       let loopMessages = [...openaiMessages];
-      let maxLoops = 20; // Balanced: enough for complex workflows, stops runaway loops
+      let maxLoops = 35; // High enough for complex projects (5 tasks × ~6 tools each + planning overhead)
 
       // Dynamic tool selection — only send relevant tools based on user message + recent context
       const recentHistoryForSelection = (conversation.messages || []).slice(-6).map((m: any) => ({
@@ -496,6 +679,142 @@ Format as bullet points. Be specific — include numbers, IDs, URLs. Skip pleasa
         toolCalls: m.toolCalls,
       }));
       let selectedTools = await selectToolsForMessage(message, recentHistoryForSelection);
+
+      // ═══════════════════════════════════════════════════════════════
+      // MULTI-AGENT THOUGHT CHAIN — adaptive reasoning for complex tasks
+      // ═══════════════════════════════════════════════════════════════
+      // ═══════════════════════════════════════════════════════════════
+      // PLANNER → EXECUTOR MODEL (like Cursor's agent architecture)
+      //
+      // Phase 1: PLANNER — reads tools + context, creates a task checklist
+      //          Can see tool definitions but CANNOT call tools.
+      //          Outputs structured JSON: { thinking, tasks: [{id, label, tool, args}] }
+      //
+      // Phase 2: EXECUTOR — receives checklist, executes one task per loop
+      //          Checks off each task, streams progress to frontend.
+      //          Each loop = one checklist item completed.
+      // ═══════════════════════════════════════════════════════════════
+      const thinkingDecision = await shouldUseThinkingChain(message, selectedTools.length, recentHistoryForSelection);
+      let planTasks: Array<{ id: string; label: string; tool?: string; detail?: string }> = [];
+      
+      if (thinkingDecision.shouldThink) {
+        const depthConfig = {
+          light:  { tokens: 1200,  temp: 0.1, contextSlice: 2 },
+          medium: { tokens: 2500, temp: 0.1, contextSlice: 4 },
+          deep:   { tokens: 4000, temp: 0.2, contextSlice: 6 },
+        }[thinkingDecision.depth];
+
+        // Build tool catalog: name + one-line description (planner can READ but not CALL)
+        const toolCatalog = selectedTools.map(t => `- ${t.function.name}: ${t.function.description?.slice(0, 100)}`).join('\n');
+
+        const plannerPrompt = `You are a PLANNER for an AI agent that manages business tasks, workflows, and contractors.
+
+YOUR ROLE: Create a concrete, executable task list. The executor agent will call tools EXACTLY as you specify.
+
+YOU CAN: Read tool definitions, read conversation context, reason about ordering.
+YOU CANNOT: Call tools, execute actions, talk to the user.
+
+AVAILABLE TOOLS (executor will call these):
+${toolCatalog}
+
+KEY TOOL NOTES:
+- setup_parallel_dependencies: Sets branched/parallel deps for MULTIPLE tasks in ONE call. Pass a "dependencies" array where each item has workUnitId + dependsOn array. ALWAYS use this when the user wants parallel/branched workflows. NEVER use setup_dependency_chain for branched layouts.
+- setup_dependency_chain: ONLY for simple A→B→C sequential chains.
+- update_work_unit: Can update ANY field on a work unit (title, spec, price, deadline, minTier, complexityScore, status, etc.)
+- list_work_units: ALWAYS call this first if you need IDs. Returns short IDs like "db1a9fa1".
+
+OUTPUT — return ONLY valid JSON:
+{
+  "thinking": "2-4 sentence reasoning",
+  "tasks": [
+    { "id": "1", "label": "Fetch all work units", "tool": "list_work_units", "detail": "Get IDs for dependency wiring" },
+    { "id": "2", "label": "Set parallel dependencies", "tool": "setup_parallel_dependencies", "detail": "Wire branched deps with completed gating and full sharing on design→build" }
+  ]
+}
+
+RULES:
+- Every task MUST have a "tool" field with a real tool name from the catalog
+- NO tasks without tools — the executor only knows how to call tools
+- If data is needed (IDs, current state), put a list_* call FIRST
+- 2-8 tasks typical. Do NOT over-decompose.
+- Do NOT include "ask user" or "clarify" tasks — the plan is final.
+- Do NOT include tasks like "analyze" or "determine" — those are YOUR job as planner, not the executor's.`;
+
+        try {
+          console.log(`[Agent] Planner activated: depth=${thinkingDecision.depth}, reason=${thinkingDecision.reason}`);
+          reply.raw.write(`data: ${JSON.stringify({ type: 'thinking_start', depth: thinkingDecision.depth, reason: thinkingDecision.reason || '' })}\n\n`);
+          
+          const planResponse = await openai.chat.completions.create({
+            model: 'gpt-5.2',
+            messages: [
+              { role: 'system', content: plannerPrompt },
+              ...openaiMessages.slice(-(depthConfig?.contextSlice || 4)),
+              { role: 'user', content: message },
+            ],
+            temperature: depthConfig?.temp || 0.1,
+            max_completion_tokens: depthConfig?.tokens || 2500,
+            response_format: { type: 'json_object' },
+          });
+
+          const planRaw = planResponse.choices[0]?.message?.content || '{}';
+          console.log(`[Agent] Planner output: ${planRaw.slice(0, 300)}`);
+          
+          let plan: { thinking?: string; tasks?: Array<{ id: string; label: string; tool?: string; detail?: string }> };
+          try {
+            plan = JSON.parse(planRaw);
+          } catch {
+            // Try to extract JSON from markdown code blocks
+            const jsonMatch = planRaw.match(/\{[\s\S]*\}/);
+            plan = jsonMatch ? JSON.parse(jsonMatch[0]) : { thinking: planRaw, tasks: [] };
+          }
+
+          // Stream thinking (brief internal reasoning)
+          if (plan.thinking) {
+            reply.raw.write(`data: ${JSON.stringify({ type: 'thinking', content: plan.thinking })}\n\n`);
+          }
+
+          // Stream task checklist to frontend
+          planTasks = (plan.tasks || []).map((t, i) => ({
+            id: t.id || String(i + 1),
+            label: t.label || `Step ${i + 1}`,
+            tool: t.tool,
+            detail: t.detail,
+          }));
+
+          if (planTasks.length > 0) {
+            reply.raw.write(`data: ${JSON.stringify({ type: 'plan_tasks', tasks: planTasks })}\n\n`);
+          }
+
+          reply.raw.write(`data: ${JSON.stringify({ type: 'thinking_end' })}\n\n`);
+
+          // Inject plan into executor context (concise, actionable)
+          const taskListForAgent = planTasks.map((t, i) => 
+            `${i + 1}. ${t.label}${t.tool ? ` [use: ${t.tool}]` : ''}${t.detail ? ` — ${t.detail}` : ''}`
+          ).join('\n');
+          
+          const injection = `\n\n[EXECUTION PLAN — INTERNAL, DO NOT RESTATE TO USER]
+${plan.thinking || ''}
+
+TASKS (execute in order):
+${taskListForAgent}
+
+CRITICAL EXECUTION RULES:
+- Execute tasks ONE AT A TIME by calling the tool specified in each task.
+- Do NOT describe what you're about to do — just call the tool immediately.
+- Do NOT repeat or summarize this plan to the user.
+- Do NOT ask clarifying questions if the plan already has the answer.
+- If a task says [use: setup_parallel_dependencies], use THAT tool, not setup_dependency_chain.
+- After ALL tasks are done, give ONE brief summary (2-3 sentences max) of what was accomplished.
+- If a tool returns an error, log it and continue to the next task.
+- Use the EXACT tool names specified. Do not substitute tools.`;
+          loopMessages[0].content = `${loopMessages[0].content}${injection}`;
+
+        } catch (planErr: any) {
+          console.error('[Agent] Planner failed:', planErr?.message?.slice(0, 200));
+          reply.raw.write(`data: ${JSON.stringify({ type: 'thinking_end' })}\n\n`);
+          // Continue without plan — agent will work freestyle
+        }
+      }
 
       while (maxLoops-- > 0) {
         const stream = await openai.chat.completions.create({
@@ -619,6 +938,29 @@ Format as bullet points. Be specific — include numbers, IDs, URLs. Skip pleasa
           }
           reply.raw.write(`data: ${JSON.stringify({ type: 'tool', name: toolName, status: 'done', result })}\n\n`);
 
+          // Check off matching plan task
+          // Match by: (1) exact tool name + not yet done, (2) for planning tools, check off all sub-steps
+          if (planTasks.length > 0) {
+            // For plan_execute: it creates WUs + contracts + onboarding in one call — check off related tasks
+            const planningBatchTools = ['plan_execute', 'plan_analyze', 'plan_decompose', 'plan_price', 'plan_legal'];
+            if (planningBatchTools.includes(toolName)) {
+              // Check off all plan tasks that reference this tool or related batch operations
+              for (const t of planTasks) {
+                if (!(t as any)._done && (t.tool === toolName || (toolName === 'plan_execute' && ['create_work_unit', 'create_contract', 'set_onboarding', 'publish_work_unit', 'fund_escrow'].includes(t.tool || '')))) {
+                  (t as any)._done = true;
+                  reply.raw.write(`data: ${JSON.stringify({ type: 'plan_task_complete', taskId: t.id })}\n\n`);
+                }
+              }
+            } else {
+              // Standard: check off first matching undone task with this tool name
+              const matchingTask = planTasks.find(t => t.tool === toolName && !(t as any)._done);
+              if (matchingTask) {
+                (matchingTask as any)._done = true;
+                reply.raw.write(`data: ${JSON.stringify({ type: 'plan_task_complete', taskId: matchingTask.id })}\n\n`);
+              }
+            }
+          }
+
           // Save tool result
           await db.agentMessage.create({
             data: {
@@ -673,11 +1015,14 @@ Format as bullet points. Be specific — include numbers, IDs, URLs. Skip pleasa
         }
         lastLoopToolNames = thisLoopToolNames;
 
-        // Re-expand tools ONLY if the model explicitly mentioned needing a tool from another group
-        // Check if any tool result contains "Unknown tool" or the model's text mentions a tool name not in current set
+        // Re-expand tools if the model mentioned a tool name not in the current set
+        // or if a tool result contains "Unknown tool"
         const selectedNames = new Set(selectedTools.map(t => t.function.name));
-        const mentionedTools = (currentContent || '').match(/\b(create_contract|set_onboarding|plan_analyze|setup_dependency_chain|draft_sow|draft_nda|calculate_pricing)\b/g);
-        const needsExpansion = mentionedTools?.some(t => !selectedNames.has(t));
+        const allToolNames = TOOL_DEFINITIONS.map(t => t.function.name);
+        // Dynamically check if agent mentioned ANY valid tool name that's not currently selected
+        const combinedText = (currentContent || '') + toolCallsAccumulated.slice(-3).map(tc => tc.result || '').join(' ');
+        const mentionedTools = allToolNames.filter(name => combinedText.includes(name) && !selectedNames.has(name));
+        const needsExpansion = mentionedTools.length > 0 || combinedText.includes('Unknown tool');
         if (needsExpansion) {
           const expandedTools = await selectToolsForMessage(
             currentContent || '',

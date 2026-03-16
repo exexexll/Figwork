@@ -22,11 +22,15 @@ import {
 import { getTemplates } from '@/lib/api';
 import type { Template } from '@/lib/types';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
 export default function SettingsPage() {
   const { getToken } = useAuth();
   const [profile, setProfile] = useState<CompanyProfile | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notifPrefs, setNotifPrefs] = useState({ emailMessages: true, inApp: true, taskUpdates: true, deadlineReminders: true });
+  const [savingNotifs, setSavingNotifs] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -218,24 +222,36 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="space-y-3 text-sm">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" defaultChecked className="w-4 h-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500" />
-                  <span className="text-text-primary">Email notifications for new messages</span>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" defaultChecked className="w-4 h-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500" />
-                  <span className="text-text-primary">In-app notifications</span>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" defaultChecked className="w-4 h-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500" />
-                  <span className="text-text-primary">Task status updates</span>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" defaultChecked className="w-4 h-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500" />
-                  <span className="text-text-primary">Deadline reminders</span>
-                </label>
+                {([
+                  { key: 'emailMessages', label: 'Email notifications for new messages' },
+                  { key: 'inApp', label: 'In-app notifications' },
+                  { key: 'taskUpdates', label: 'Task status updates' },
+                  { key: 'deadlineReminders', label: 'Deadline reminders' },
+                ] as const).map(item => (
+                  <label key={item.key} className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={notifPrefs[item.key]}
+                      onChange={async (e) => {
+                        const updated = { ...notifPrefs, [item.key]: e.target.checked };
+                        setNotifPrefs(updated);
+                        setSavingNotifs(true);
+                        try {
+                          const token = await getToken();
+                          await fetch(`${API_URL}/api/companies/settings`, {
+                            method: 'PUT',
+                            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ notificationPrefs: updated }),
+                          });
+                        } catch {} finally { setSavingNotifs(false); }
+                      }}
+                      className="w-4 h-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500"
+                    />
+                    <span className="text-text-primary">{item.label}</span>
+                  </label>
+                ))}
               </div>
-              <p className="text-xs text-text-secondary mt-4 italic">Preferences are saved automatically</p>
+              <p className="text-xs text-text-secondary mt-4">{savingNotifs ? 'Saving...' : 'Saved automatically'}</p>
             </div>
           </CardContent>
         </Card>

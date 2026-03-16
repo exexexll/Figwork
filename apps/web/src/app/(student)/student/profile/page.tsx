@@ -111,10 +111,22 @@ export default function ProfilePage() {
         <p className="text-slate-500 mt-1">Manage your profile and skills</p>
       </div>
 
-      {/* Profile Card */}
+      {/* Avatar + Profile Card */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">Profile Information</h2>
+          <div className="flex items-center gap-3">
+            <div className="relative group">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#a2a3fc] to-[#7b7cee] flex items-center justify-center text-white font-bold text-lg">
+                {profile.name?.charAt(0)?.toUpperCase() || '?'}
+              </div>
+              {editMode && (
+                <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                  <span className="text-white text-[9px]">Change</span>
+                </div>
+              )}
+            </div>
+            <h2 className="font-semibold text-slate-900">Profile Information</h2>
+          </div>
           {!editMode ? (
             <button
               onClick={() => setEditMode(true)}

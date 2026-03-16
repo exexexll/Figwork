@@ -101,7 +101,7 @@ export const TOOL_DEFINITIONS = [
     type: 'function' as const,
     function: {
       name: 'update_work_unit',
-      description: 'Update an existing work unit. Can change any field.',
+      description: 'Update an existing work unit. Can change any field including minTier and complexityScore. Use this to modify contractor tier requirements (minTier: novice/pro/elite) or task complexity (complexityScore: 1-5) for existing work units.',
       parameters: {
         type: 'object',
         properties: {
@@ -117,8 +117,8 @@ export const TOOL_DEFINITIONS = [
           requiredSkills: { type: 'array', items: { type: 'string' } },
           deliverableFormat: { type: 'array', items: { type: 'string' } },
           acceptanceCriteria: { type: 'array', items: { type: 'object', properties: { criterion: { type: 'string' }, required: { type: 'boolean' } } } },
-          minTier: { type: 'string', enum: ['novice', 'pro', 'elite'] },
-          complexityScore: { type: 'number' },
+          minTier: { type: 'string', enum: ['novice', 'pro', 'elite'], description: 'Minimum contractor tier required. Can be updated on existing work units to allow novice/pro/elite contractors.' },
+          complexityScore: { type: 'number', description: 'Task complexity rating 1-5. Can be updated on existing work units. Lower = simpler, higher = more complex.' },
           revisionLimit: { type: 'number' },
           assignmentMode: { type: 'string', enum: ['auto', 'manual'] },
           exampleUrls: { type: 'array', items: { type: 'string' } },
@@ -307,6 +307,44 @@ export const TOOL_DEFINITIONS = [
   {
     type: 'function' as const,
     function: {
+      name: 'setup_parallel_dependencies',
+      description: 'Set up complex parallel dependency structures with multiple dependencies per task. Use for branched workflows where tasks can have multiple prerequisites. Each dependency can have different conditions and context sharing.',
+      parameters: {
+        type: 'object',
+        properties: {
+          dependencies: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                workUnitId: { type: 'string', description: 'Task that has dependencies' },
+                dependsOn: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      workUnitId: { type: 'string' },
+                      condition: { type: 'string', enum: ['completed', 'published', 'failed'], description: 'When dependency must be met' },
+                      shareContext: { type: 'string', enum: ['none', 'summary', 'full'], description: 'How much context to share' },
+                      onFailure: { type: 'string', enum: ['publish', 'cancel', 'notify'], description: 'Only if condition=failed' },
+                    },
+                    required: ['workUnitId'],
+                  },
+                  description: 'Array of dependencies for this task',
+                },
+              },
+              required: ['workUnitId', 'dependsOn'],
+            },
+            description: 'Array of tasks with their dependency configurations',
+          },
+        },
+        required: ['dependencies'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
       name: 'delete_work_unit',
       description: 'Delete a work unit (only if draft or cancelled)',
       parameters: {
@@ -394,6 +432,7 @@ export const TOOL_DEFINITIONS = [
   { type: 'function' as const, function: { name: 'assign_to_workflow_group', description: 'Add or remove work units from a workflow space. Use after creating new tasks to add them to an existing project space.', parameters: { type: 'object', properties: { groupId: { type: 'string' }, addWorkUnitIds: { type: 'array', items: { type: 'string' } }, removeWorkUnitIds: { type: 'array', items: { type: 'string' } } }, required: ['groupId'] } } },
   { type: 'function' as const, function: { name: 'list_workflow_groups', description: 'List all workflow spaces and their tasks. Check before creating a new group to avoid duplicates.', parameters: { type: 'object', properties: {} } } },
   { type: 'function' as const, function: { name: 'delete_workflow_group', description: 'Delete a workflow space. Tasks are unassigned from the space but not deleted.', parameters: { type: 'object', properties: { groupId: { type: 'string' } }, required: ['groupId'] } } },
+  { type: 'function' as const, function: { name: 'auto_layout_workflow', description: 'Auto-layout the workflow board for a group. Recalculates node positions based on current dependencies and saves them. Call this AFTER setting dependencies to make the visual board reflect the branched structure.', parameters: { type: 'object', properties: { groupId: { type: 'string', description: 'Workflow group ID to relayout' } }, required: ['groupId'] } } },
   // Planning
   { type: 'function' as const, function: { name: 'plan_analyze', description: 'STEP 1: Analyze a project goal. Data is stored server-side for the next steps.', parameters: { type: 'object', properties: { goal: { type: 'string' }, budget: { type: 'string' }, timeline: { type: 'string' } }, required: ['goal'] } } },
   { type: 'function' as const, function: { name: 'plan_decompose', description: 'STEP 2: Break into work units. Reads the brief from step 1 automatically — no need to pass data.', parameters: { type: 'object', properties: {} } } },
@@ -435,7 +474,7 @@ export const TOOL_DEFINITIONS = [
 
 const TOOL_GROUPS: Record<string, string[]> = {
   core: [
-    'list_work_units', 'get_work_unit_detail', 'web_search',
+    'list_work_units', 'get_work_unit_detail', 'update_work_unit', 'web_search',
     'get_company_profile', 'get_analytics', 'get_notifications',
     'list_workflow_groups', 'list_candidates', 'assign_student',
     'list_all_executions', 'get_monitoring_summary',
@@ -447,12 +486,13 @@ const TOOL_GROUPS: Record<string, string[]> = {
     'update_interview', 'delete_interview', 'add_question', 'update_question',
     'delete_question', 'generate_link', 'list_knowledge', 'get_sessions',
     'get_session_detail', 'get_work_unit_sessions', 'get_improvements', 'get_qa_results',
+    'create_contract', 'activate_contract', 'set_onboarding', 'get_onboarding',
   ],
   operations: [
     'get_monitoring_summary', 'list_all_executions', 'get_execution_status',
     'review_submission', 'approve_application', 'list_review_queue',
     'get_revisions', 'cancel_execution', 'request_pow_check', 'get_pow_logs',
-    'list_candidates', 'assign_student',
+    'list_candidates', 'assign_student', 'update_work_unit',
     'send_message_to_contractor', 'get_execution_messages',
   ],
   contracts: [
@@ -470,12 +510,14 @@ const TOOL_GROUPS: Record<string, string[]> = {
   ],
   workflow: [
     'create_workflow_group', 'update_workflow_group', 'assign_to_workflow_group',
-    'delete_workflow_group', 'setup_dependency_chain', 'set_publish_schedule',
-    'get_publish_status', 'list_work_units', 'list_workflow_groups',
+    'delete_workflow_group', 'setup_dependency_chain', 'setup_parallel_dependencies',
+    'set_publish_schedule', 'get_publish_status', 'list_work_units', 'list_workflow_groups',
+    'auto_layout_workflow',
   ],
   planning: [
     'plan_analyze', 'plan_decompose', 'plan_price', 'plan_legal', 'plan_execute',
-    'list_work_units', 'create_work_unit', 'setup_dependency_chain',
+    'list_work_units', 'create_work_unit', 'update_work_unit',
+    'setup_dependency_chain', 'setup_parallel_dependencies',
     'create_workflow_group', 'list_workflow_groups',
   ],
   panel: [
@@ -499,12 +541,12 @@ const VALID_GROUPS = new Set(Object.keys(TOOL_GROUPS));
 const INTENT_SYSTEM_PROMPT = `Classify the user's intent into tool groups. Return {"groups":["group1","group2"]}.
 
 Groups:
-- scope: create/edit/delete tasks, interviews, milestones, publishing, screening
-- operations: monitor executions, review submissions, POW checks, assign contractors, check status
-- contracts: create/edit legal agreements, NDAs, SOWs, MSAs, activate contracts
-- onboarding: set/get contractor onboarding pages, design onboarding experience
+- scope: create/edit/delete/VIEW tasks, check specs, check deliverables, check requirements, check acceptance criteria, interviews, milestones, publishing, screening, contracts for tasks, onboarding pages for tasks
+- operations: monitor executions, review submissions, POW checks, assign contractors, check execution status, candidate matching
+- contracts: create/edit legal agreements ONLY (NDAs, SOWs, MSAs), activate contracts — NOT "check requirements"
+- onboarding: set/get contractor onboarding pages ONLY when user explicitly says "onboarding page" or "onboarding experience" — NOT for checking task specs/requirements
 - financial: billing, invoices, budgets, pricing, escrow, transactions, payments, costs
-- workflow: dependency chains, workflow groups/spaces, scheduling, task ordering, publish conditions
+- workflow: dependency chains, workflow groups/spaces, scheduling, task ordering, publish conditions, layout
 - planning: "plan a project", "break this down", multi-step project setup (analyze→decompose→price→legal→execute)
 - panel: bulk operations, export data, archive/restore, templates, contractor blacklist/whitelist, activity log, mark notifications
 - company: company profile edits, disputes
@@ -512,12 +554,14 @@ Groups:
 Rules:
 - Return 1-5 groups. When in doubt, include MORE groups rather than fewer.
 - "yes"/"do it"/"confirm"/"go ahead" → return groups from the Recent context below.
+- "check"/"view"/"show"/"what are" + deliverables/requirements/spec/criteria → ["scope"] NOT onboarding
 - If the user mentions BOTH tasks AND dependencies → ["scope","workflow"]
 - If the user mentions creating tasks as part of a project → ["scope","workflow","planning"]
 - If truly ambiguous with no context → return ALL groups.`;
 
 /**
- * Use gpt-5.2 to classify the user's intent into tool groups.
+ * Classify user intent into tool groups.
+ * Uses gpt-4o-mini (cheap, fast) instead of gpt-5.2 to save cost.
  * Returns the group names as a string array.
  */
 async function classifyIntent(
@@ -547,7 +591,7 @@ async function classifyIntent(
 
   try {
     const res = await openai.chat.completions.create({
-      model: 'gpt-5.2',
+      model: 'gpt-4o-mini', // Cheap + fast for classification (50x cheaper than gpt-5.2)
       messages: [
         { role: 'system', content: INTENT_SYSTEM_PROMPT },
         { role: 'user', content: `${message}${contextSnippet}` },
@@ -870,6 +914,8 @@ export async function executeTool(
         return await toolGetPublishStatus(args, companyId);
       case 'setup_dependency_chain':
         return await toolSetupDependencyChain(args, companyId);
+      case 'setup_parallel_dependencies':
+        return await toolSetupParallelDependencies(args, companyId);
       case 'delete_work_unit':
         return await toolDeleteWorkUnit(args, companyId);
       case 'add_milestones':
@@ -930,6 +976,7 @@ export async function executeTool(
       case 'assign_to_workflow_group': return await toolAssignToWorkflowGroup(args, companyId);
       case 'list_workflow_groups': return await toolListWorkflowGroups(companyId);
       case 'delete_workflow_group': return await toolDeleteWorkflowGroup(args, companyId);
+      case 'auto_layout_workflow': return await toolAutoLayoutWorkflow(args, companyId);
       // Planning
       case 'plan_analyze': return await toolPlanAnalyze(args, companyId);
       case 'plan_decompose': return await toolPlanDecompose(args, companyId);
@@ -1066,7 +1113,7 @@ async function toolUpdateWorkUnit(args: any, companyId: string): Promise<string>
   if (updates.requiredDocuments) data.requiredDocuments = updates.requiredDocuments;
   if (updates.exampleUrls) { data.exampleUrls = updates.exampleUrls; data.hasExamples = updates.exampleUrls.length > 0; }
   if (updates.acceptanceCriteria) data.acceptanceCriteria = updates.acceptanceCriteria;
-  if (updates.interviewTemplateId !== undefined) data.infoCollectionTemplateId = updates.interviewTemplateId;
+  if (updates.interviewTemplateId !== undefined) data.infoCollectionTemplateId = updates.interviewTemplateId || null; // empty string → null for UUID column
 
   // Handle scheduledPublishAt
   if (updates.scheduledPublishAt !== undefined) {
@@ -1602,6 +1649,127 @@ async function toolSetupDependencyChain(args: any, companyId: string): Promise<s
   return `Dependency chain set (${condition}, ${shareContext} sharing):\n${results.join('\n')}\n\n${resolvedIds.length - 1} connections created. Tasks will auto-publish in sequence.`;
 }
 
+async function toolSetupParallelDependencies(args: any, companyId: string): Promise<string> {
+  const deps: Array<{ workUnitId: string; dependsOn: Array<{ workUnitId: string; condition?: string; shareContext?: string; onFailure?: string }> }> = args.dependencies || [];
+  if (deps.length === 0) return 'No dependencies provided. Pass an array of tasks with their dependency configurations.';
+
+  const results: string[] = [];
+  const errors: string[] = [];
+
+  // Phase 1: Resolve ALL referenced IDs upfront (batch)
+  const allRawIds = new Set<string>();
+  for (const depConfig of deps) {
+    allRawIds.add(depConfig.workUnitId);
+    for (const dep of depConfig.dependsOn || []) {
+      allRawIds.add(dep.workUnitId);
+    }
+  }
+
+  // Resolve short IDs → full UUIDs
+  const resolvedMap = new Map<string, string>(); // raw → full UUID
+  for (const rawId of Array.from(allRawIds)) {
+    const resolved = await resolveId('workUnit', rawId, companyId);
+    if (resolved) resolvedMap.set(rawId, resolved);
+  }
+
+  // Batch fetch all resolved work units for verification + title mapping
+  const allResolvedIds = Array.from(new Set(resolvedMap.values()));
+  const wus = await db.workUnit.findMany({
+    where: { id: { in: allResolvedIds }, companyId },
+    select: { id: true, title: true },
+  });
+  const titleMap = new Map(wus.map(w => [w.id, w.title]));
+  const validIds = new Set(wus.map(w => w.id));
+
+  // Phase 2: Process each dependency configuration
+  for (const depConfig of deps) {
+    const rawWuId = depConfig.workUnitId;
+    const dependsOn = depConfig.dependsOn || [];
+
+    const resolvedWuId = resolvedMap.get(rawWuId);
+    if (!resolvedWuId || !validIds.has(resolvedWuId)) {
+      errors.push(`Could not find work unit "${rawWuId}" in your company`);
+      continue;
+    }
+    const wuTitle = titleMap.get(resolvedWuId) || resolvedWuId.slice(0, 8);
+
+    // Empty dependsOn = clear dependencies
+    if (dependsOn.length === 0) {
+      try {
+        await (db.workUnit as any).update({
+          where: { id: resolvedWuId },
+          data: { publishConditions: null },
+        });
+        results.push(`Cleared dependencies for "${wuTitle}"`);
+      } catch (err: any) {
+        errors.push(`Failed to clear "${wuTitle}": ${err?.message?.slice(0, 60)}`);
+      }
+      continue;
+    }
+
+    // Resolve + validate each dependency
+    const resolvedDeps: Array<{ workUnitId: string; condition: string; shareContext: string; onFailure?: string }> = [];
+    for (const dep of dependsOn) {
+      const resolvedDepId = resolvedMap.get(dep.workUnitId);
+      if (!resolvedDepId || !validIds.has(resolvedDepId)) {
+        errors.push(`Dependency "${dep.workUnitId}" for "${wuTitle}" not found`);
+        continue;
+      }
+      // Prevent self-dependency
+      if (resolvedDepId === resolvedWuId) {
+        errors.push(`"${wuTitle}" cannot depend on itself`);
+        continue;
+      }
+
+      resolvedDeps.push({
+        workUnitId: resolvedDepId,
+        condition: dep.condition || 'completed',
+        shareContext: dep.shareContext || 'summary',
+        ...(dep.condition === 'failed' && dep.onFailure ? { onFailure: dep.onFailure } : {}),
+      });
+    }
+
+    if (resolvedDeps.length === 0) {
+      errors.push(`No valid dependencies resolved for "${wuTitle}"`);
+      continue;
+    }
+
+    // Always set logic for consistency with evaluatePublishConditions
+    const logic = resolvedDeps.length > 1 ? 'AND' : 'AND';
+
+    try {
+      await (db.workUnit as any).update({
+        where: { id: resolvedWuId },
+        data: {
+          publishConditions: {
+            logic,
+            dependencies: resolvedDeps,
+          },
+        },
+      });
+
+      const depTitles = resolvedDeps.map(d => {
+        return `"${titleMap.get(d.workUnitId) || d.workUnitId.slice(0, 8)}" (${d.condition}, ${d.shareContext})`;
+      });
+      results.push(`"${wuTitle}" depends on: ${depTitles.join(' + ')}`);
+    } catch (err: any) {
+      errors.push(`Failed to set deps for "${wuTitle}": ${err?.message?.slice(0, 60)}`);
+    }
+  }
+
+  // Build output
+  let output = '';
+  if (results.length > 0) {
+    output += `Parallel dependencies configured:\n${results.join('\n')}\n\n`;
+  }
+  if (errors.length > 0) {
+    output += `Errors:\n${errors.join('\n')}\n\n`;
+  }
+  const totalDeps = deps.reduce((sum, d) => sum + (d.dependsOn?.length || 0), 0);
+  output += `${results.length} task(s) configured with ${totalDeps} total dependency links.`;
+  return output;
+}
+
 async function toolDeleteWorkUnit(args: any, companyId: string): Promise<string> {
   const wu = await db.workUnit.findFirst({
     where: { id: args.workUnitId, companyId },
@@ -1796,7 +1964,8 @@ async function toolDeleteQuestion(args: any, userId: string): Promise<string> {
 async function toolGenerateLink(args: any, userId: string): Promise<string> {
   const t = await db.interviewTemplate.findFirst({ where: { id: args.templateId, ownerId: userId } });
   if (!t) return 'Template not found.';
-  const token = require('crypto').randomBytes(16).toString('hex');
+  const { randomBytes } = await import('crypto');
+  const token = randomBytes(16).toString('hex');
   const link = await db.interviewLink.create({
     data: { templateId: args.templateId, token, linkType: args.linkType || 'permanent', isActive: true },
   });
@@ -2618,6 +2787,93 @@ async function toolDeleteWorkflowGroup(args: any, companyId: string): Promise<st
   return `Deleted workflow space "${group.name}". Tasks were unassigned from the space but not deleted.`;
 }
 
+async function toolAutoLayoutWorkflow(args: any, companyId: string): Promise<string> {
+  const groupId = args.groupId;
+  const group = await (db as any).workflowGroup.findFirst({
+    where: { id: groupId, companyId },
+    include: { workUnits: { where: { archivedAt: null }, select: { id: true, title: true, publishConditions: true } } },
+  });
+  if (!group) return 'Workflow group not found.';
+
+  const nodes = group.workUnits || [];
+  if (nodes.length === 0) return 'No tasks in this workflow group.';
+
+  // Build dependency graph
+  const nodeIds = new Set(nodes.map((n: any) => n.id));
+  const inDeps = new Map<string, string[]>();
+  nodes.forEach((n: any) => inDeps.set(n.id, []));
+
+  for (const n of nodes) {
+    const pc = n.publishConditions as any;
+    if (!pc?.dependencies) continue;
+    for (const dep of pc.dependencies) {
+      if (nodeIds.has(dep.workUnitId)) {
+        inDeps.get(n.id)!.push(dep.workUnitId);
+      }
+    }
+  }
+
+  // Longest-path layering (same algorithm as frontend autoLayout)
+  const layerMap = new Map<string, number>();
+  function assignLayer(id: string, visited = new Set<string>()): number {
+    if (layerMap.has(id)) return layerMap.get(id)!;
+    if (visited.has(id)) return 0;
+    visited.add(id);
+    const deps = inDeps.get(id) || [];
+    const layer = deps.length === 0 ? 0 : Math.max(...deps.map(d => assignLayer(d, visited) + 1));
+    layerMap.set(id, layer);
+    return layer;
+  }
+  nodes.forEach((n: any) => assignLayer(n.id));
+
+  // Group by layer
+  const layers: string[][] = [];
+  Array.from(layerMap.entries()).forEach(([id, layer]) => {
+    while (layers.length <= layer) layers.push([]);
+    layers[layer].push(id);
+  });
+  for (const n of nodes) {
+    if (!layerMap.has(n.id)) {
+      if (!layers.length) layers.push([]);
+      layers[0].push(n.id);
+    }
+  }
+
+  // Calculate positions
+  const NODE_W = 200, NODE_H = 88;
+  const COL_GAP = NODE_W + 60;
+  const ROW_GAP = NODE_H + 80;
+  const maxLayerWidth = Math.max(...layers.map(l => l.length));
+  const positions: Record<string, { x: number; y: number }> = {};
+
+  for (let li = 0; li < layers.length; li++) {
+    const layer = layers[li];
+    const layerWidth = layer.length * COL_GAP;
+    const totalWidth = maxLayerWidth * COL_GAP;
+    const offsetX = (totalWidth - layerWidth) / 2;
+    for (let ni = 0; ni < layer.length; ni++) {
+      positions[layer[ni]] = {
+        x: 30 + offsetX + ni * COL_GAP,
+        y: 30 + li * ROW_GAP,
+      };
+    }
+  }
+
+  // Save positions to the workflow group
+  await (db as any).workflowGroup.update({
+    where: { id: groupId },
+    data: { nodePositions: positions },
+  });
+
+  // Build summary
+  const titleMap = new Map(nodes.map((n: any) => [n.id, n.title]));
+  const layerSummary = layers.map((layer, i) => 
+    `Layer ${i}: ${layer.map(id => titleMap.get(id) || id.slice(0, 8)).join(', ')}`
+  ).join('\n');
+
+  return `Auto-layout complete for "${group.name}" (${nodes.length} tasks, ${layers.length} layers).\n\n${layerSummary}\n\nThe board will refresh to show the new layout when the user visits the Workflow page.`;
+}
+
 // ============================================================
 // MULTI-AGENT PROJECT PLANNER — server-side chained stages
 // Each stage stores its output; next stage reads it directly.
@@ -2756,13 +3012,14 @@ CRITICAL RULES:
 3. **Keep Complex Separate**: Complex or unique deliverables stay as individual work units.
 4. **Respect Dependencies**: Don't group items with different dependencies.
 
-For each work unit, write a COMPREHENSIVE spec (2-3 paragraphs, not one sentence) that includes:
-- **Context**: Why this deliverable exists, how it fits into the project
-- **Requirements**: Detailed, specific requirements (not vague)
-- **Format**: Exact format, dimensions, file types, naming conventions
-- **Quality Standards**: Specific quality metrics, examples of good work
-- **What to Avoid**: Common mistakes, things to avoid
-- **Acceptance Criteria**: Clear, measurable criteria for approval
+For each work unit, write a COMPREHENSIVE spec (minimum 400 words per spec, 3-5 paragraphs) that includes ALL of these sections:
+
+**SPEC REQUIREMENTS (each spec MUST have all of these):**
+1. **Context & Purpose**: Why this deliverable exists, how it fits the project, who consumes the output. (1 paragraph)
+2. **Detailed Requirements**: Exhaustive list of what must be produced. Be EXTREMELY specific — list exact pages, sections, components, word counts, dimensions. No vague language like "create content" — instead: "Write 5 landing page sections: hero (50 words), features (3 items × 80 words each), testimonials section layout, pricing table copy, CTA section (30 words)." (1-2 paragraphs)
+3. **Technical Specifications**: Exact file formats, dimensions, tools, frameworks, naming conventions, folder structure. E.g. "Deliver as Figma file with auto-layout, 1440px desktop + 375px mobile breakpoints, using 8px grid." (1 paragraph)
+4. **Quality Standards & What to Avoid**: Specific quality metrics. Reference brand guidelines, tone of voice, competitors to match or exceed. List 3-5 common mistakes to avoid. (1 paragraph)
+5. **Acceptance Criteria**: 4-6 specific, measurable criteria. E.g. "All copy passes Hemingway Grade 8 readability", "Design passes WCAG AA contrast ratio", "Page loads in under 3s on 4G connection." (bullet list)
 
 **WORKFLOW ORCHESTRATION — THIS IS CRITICAL:**
 The project workflow type is "${workflowType}". You MUST set up dependencies and context sharing between work units:
@@ -3133,15 +3390,28 @@ async function toolPlanLegal(args: any, companyId?: string): Promise<string> {
 
 Generate a contractor agreement AND onboarding page for EACH work unit listed below. Each contract must be tailored to its specific work unit.
 
-CONTRACT REQUIREMENTS (per work unit):
-- Scope referencing specific title, deliverables, and deliverableFormat
-- IP assignment (work-for-hire), payment terms with the specific price and timing
-- Revision policy based on each work unit's revisionLimit, deadline in hours
-- Confidentiality, termination, dispute resolution, quality standards referencing acceptance criteria
-- Write in plain English, enforceable language. 400+ words per contract.
+CONTRACT REQUIREMENTS (per work unit) — minimum 600 words each:
+1. SCOPE: Reference specific title, deliverables by name, exact deliverableFormat, and acceptance criteria verbatim.
+2. COMPENSATION: State exact price from the work unit, payment timing (on approval), platform fee structure.
+3. IP & OWNERSHIP: Work-for-hire clause, IP assignment, license grants, source file delivery requirements.
+4. TIMELINE: Deadline in hours from assignment, milestone checkpoints if applicable, late delivery consequences.
+5. REVISIONS: Specific revision limit from the work unit, what counts as a revision vs. a bug fix, response time.
+6. CONFIDENTIALITY: NDA-level protection for project details, client identity, business strategies.
+7. QUALITY STANDARDS: Reference the specific acceptance criteria. Define what "approved" means.
+8. TERMINATION: Conditions for early termination by either party, partial payment policy.
+9. DISPUTE RESOLUTION: Escalation process, mediation, governing law.
+10. INDEPENDENT CONTRACTOR: Classification, tax responsibility, no employment relationship.
+Write in plain English, enforceable language. Must be specific to THIS work unit — not generic.
 
-ONBOARDING REQUIREMENTS (per work unit):
-Create blocks: hero (welcome), text (instructions), text (deliverable format), text (quality standards), checklist (before you start), cta (ready to start). Tailor each to the specific work unit.
+ONBOARDING REQUIREMENTS (per work unit) — minimum 8 blocks, highly specific:
+1. hero: Welcome heading referencing the exact task title + contractor role
+2. text (Context): What this project is about, who the client is, why this deliverable matters (3+ sentences)
+3. text (Your Task): Exactly what the contractor must deliver, in bullet points, with quantities and formats
+4. text (Quality Standards): Specific quality bar — reference brand guidelines, examples, competitors to match
+5. text (Technical Requirements): File formats, tools to use, naming conventions, folder structure
+6. checklist (Before You Start): 6-8 items — "Read the full spec", "Review brand guidelines", "Check deadline", "Confirm tools available", "Review acceptance criteria", "Check revision policy"
+7. text (Deliverable Format): Exact submission format, file naming, where to upload
+8. cta: "Ready to Start?" with clear button text
 
 Return JSON with an array — one entry per work unit, IN ORDER:
 {

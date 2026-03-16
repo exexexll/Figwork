@@ -246,12 +246,13 @@ export async function createEnvelope(options: CreateEnvelopeOptions): Promise<En
       fileExtension: doc.fileExtension,
     })),
     recipients: {
-      signers: options.signers.map((signer) => ({
+      signers: options.signers.map((signer: any) => ({
         email: signer.email,
         name: signer.name,
         recipientId: signer.recipientId,
         routingOrder: signer.routingOrder || '1',
         tabs: signer.tabs || {},
+        ...(signer.clientUserId && { clientUserId: signer.clientUserId }),
       })),
     },
     status: options.status || 'sent',

@@ -144,14 +144,28 @@ export interface Execution {
   requiresScreening?: boolean;
   isManualReview?: boolean;
   interviewLink?: string | null;
+  interviewToken?: string | null;
+  hasOnboarding?: boolean;
 }
 
 export interface TaskMilestone {
   id: string;
-  description: string;
   completedAt: string | null;
-  payoutPercentage: number;
-  orderIndex: number;
+  evidenceUrl?: string | null;
+  notes?: string | null;
+  templateId: string;
+  template: {
+    description: string;
+    orderIndex: number;
+    expectedCompletion: number;
+    payoutPercent?: number;
+    requiresReview?: boolean;
+    deliverableType?: string;
+  };
+  // Flattened for convenience (populated by some endpoints)
+  description?: string;
+  orderIndex?: number;
+  payoutPercentage?: number;
 }
 
 export interface POWLog {
@@ -418,10 +432,10 @@ export async function submitDeliverables(
 export async function completeMilestone(
   executionId: string,
   milestoneId: string,
-  data: { evidenceUrl?: string; notes?: string },
+  data: { evidenceUrl?: string; fileUrls?: string[]; notes?: string },
   token: string
 ) {
-  return apiFetch<TaskMilestone>(`/api/executions/${executionId}/milestones/${milestoneId}/complete`, {
+  return apiFetch<TaskMilestone>(`/api/executions/${executionId}/milestones/${milestoneId}/submit`, {
     method: 'POST',
     body: data,
     token,

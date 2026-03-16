@@ -646,4 +646,29 @@ export async function companyRoutes(fastify: FastifyInstance) {
       return reply.status(201).send(dispute);
     }
   );
+
+  // PUT /settings — Save company settings (notification prefs, etc.)
+  fastify.put<{ Body: { notificationPrefs?: any } }>('/settings', async (request, reply) => {
+    const company = (request as any).company;
+    const { notificationPrefs } = request.body;
+
+    const currentSettings = ((company as any).settings as any) || {};
+    const updated = await (db.companyProfile as any).update({
+      where: { id: company.id },
+      data: {
+        settings: {
+          ...currentSettings,
+          ...(notificationPrefs && { notificationPrefs }),
+        },
+      },
+    });
+
+    return reply.send({ success: true, settings: updated.settings });
+  });
+
+  // GET /settings — Get company settings
+  fastify.get('/settings', async (request, reply) => {
+    const company = (request as any).company;
+    return reply.send((company as any).settings || {});
+  });
 }

@@ -137,6 +137,29 @@ export async function registerWebhookRoutes(fastify: FastifyInstance): Promise<v
   });
 
   /**
+   * DocuSign OAuth consent callback
+   * After granting consent, DocuSign redirects here with an auth code.
+   * For JWT auth, we just need consent granted — no code exchange needed.
+   */
+  fastify.get('/api/webhooks/docusign/callback', async (request, reply) => {
+    const { code, error } = request.query as { code?: string; error?: string };
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    
+    if (error) {
+      fastify.log.warn(`[DocuSign] Consent denied: ${error}`);
+      return reply.redirect(`${frontendUrl}/dashboard/settings?docusign=error&reason=${error}`);
+    }
+
+    if (code) {
+      fastify.log.info('[DocuSign] Consent granted successfully');
+      // For JWT flow, we don't need to exchange the code — consent is all we need
+      return reply.redirect(`${frontendUrl}/dashboard/settings?docusign=success`);
+    }
+
+    return reply.send({ success: true, message: 'DocuSign callback received. Consent granted.' });
+  });
+
+  /**
    * DocuSign Connect webhook
    * Receives envelope status updates (sent, delivered, completed, declined, voided)
    * Used to track contract signing status for student onboarding

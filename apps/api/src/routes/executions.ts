@@ -245,11 +245,47 @@ export async function executionRoutes(fastify: FastifyInstance) {
           });
         }
 
+        // Check if task has an onboarding page
+        let hasOnboarding = false;
+        try {
+          const comp = await db.companyProfile.findUnique({ where: { id: workUnit.companyId } });
+          if (comp) {
+            const addr = (comp.address as any) || {};
+            const pages = addr.onboardingPages || {};
+            const page = pages[workUnitId];
+            if (page && (page.blocks?.length > 0 || page.welcome || page.instructions || page.checklist?.length > 0)) {
+              hasOnboarding = true;
+            }
+          }
+        } catch {}
+
+        // Also check for active contracts that need signing
+        let hasUnsignedContracts = false;
+        try {
+          const wuPrefix = `wu-${workUnitId.slice(0, 8)}-`;
+          const allActive = await db.legalAgreement.findMany({
+            where: { status: 'active' },
+            select: { id: true, slug: true },
+          });
+          const relevant = allActive.filter((c: any) => c.slug.startsWith(wuPrefix) || !c.slug.startsWith('wu-'));
+          if (relevant.length > 0) {
+            const signatures = await (db as any).agreementSignature.findMany({
+              where: { studentId: student.id, agreementId: { in: relevant.map((c: any) => c.id) } },
+            });
+            hasUnsignedContracts = signatures.length < relevant.length;
+          }
+        } catch {}
+
+        // Extract interview token from link URL
+        const interviewToken = interviewLink ? interviewLink.split('/interview/')[1] : null;
+
         return reply.status(201).send({
           ...execution,
           requiresScreening: hasScreening,
           isManualReview: isManual,
           interviewLink,
+          interviewToken,
+          hasOnboarding: hasOnboarding || hasUnsignedContracts, // Route to onboard page if contracts OR onboarding exist
         });
       } catch (error: any) {
         if (error.message?.startsWith('CONFLICT:')) {
@@ -259,6 +295,121 @@ export async function executionRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  // GET /:id/contracts — List contracts the student needs to sign for this execution
+  fastify.get<{ Params: { id: string } }>('/:id/contracts', async (request, reply) => {
+    const student = (request as any).student;
+    if (!student) return forbidden(reply, 'Students only');
+    const { id } = request.params;
+
+    const execution = await db.execution.findFirst({
+      where: { id, studentId: student.id },
+      include: { workUnit: { select: { id: true, companyId: true } } },
+    });
+    if (!execution) return notFound(reply, 'Execution not found');
+
+    // Contracts are linked to work units via slug prefix: "wu-{wuId.slice(0,8)}-"
+    // Company-wide contracts have no "wu-" prefix in their slug
+    const wuPrefix = `wu-${execution.workUnitId.slice(0, 8)}-`;
+
+    let contracts: any[] = [];
+    try {
+      // Get all active contracts
+      const allActive = await db.legalAgreement.findMany({
+        where: { status: 'active' },
+        select: { id: true, title: true, content: true, version: true, slug: true },
+      });
+      // Filter: task-specific (slug starts with wu-prefix) + company-wide (slug doesn't start with "wu-")
+      contracts = allActive.filter((c: any) =>
+        c.slug.startsWith(wuPrefix) || !c.slug.startsWith('wu-')
+      );
+    } catch (err: any) {
+      console.warn('[Contracts] Failed to load:', err?.message?.slice(0, 60));
+    }
+
+    // Check which ones the student already signed
+    let signedIds = new Set<string>();
+    if (contracts.length > 0) {
+      try {
+        const signatures = await (db as any).agreementSignature.findMany({
+          where: { studentId: student.id, agreementId: { in: contracts.map((c: any) => c.id) } },
+        });
+        signedIds = new Set(signatures.map((s: any) => s.agreementId));
+      } catch {}
+    }
+
+    return reply.send({
+      contracts: contracts.map((c: any) => ({
+        id: c.id,
+        title: c.title,
+        content: c.content,
+        version: c.version,
+        signed: signedIds.has(c.id),
+      })),
+    });
+  });
+
+  // GET /:id/onboarding-status — Check if student needs to complete onboarding/contracts
+  fastify.get<{ Params: { id: string } }>('/:id/onboarding-status', async (request, reply) => {
+    const student = (request as any).student;
+    const company = (request as any).company;
+    const { id } = request.params;
+
+    const execution = await db.execution.findFirst({
+      where: { id, ...(student ? { studentId: student.id } : {}) },
+      include: { workUnit: { select: { id: true, companyId: true, infoCollectionTemplateId: true } } },
+    });
+    if (!execution) return notFound(reply, 'Execution not found');
+
+    let requiresOnboarding = false;
+    let requiresContract = false;
+    let requiresScreening = false;
+
+    // Check for onboarding page (stored in CompanyProfile.address.onboardingPages)
+    try {
+      const company = await db.companyProfile.findUnique({
+        where: { id: execution.workUnit.companyId },
+      });
+      if (company) {
+        const addr = (company.address as any) || {};
+        const pages = addr.onboardingPages || {};
+        const page = pages[execution.workUnitId];
+        // Has onboarding if there are blocks, welcome text, instructions, or checklist
+        if (page && (page.blocks?.length > 0 || page.welcome || page.instructions || page.checklist?.length > 0)) {
+          requiresOnboarding = true;
+        }
+      }
+    } catch (err: any) {
+      console.warn('[OnboardingStatus] Onboarding check failed:', err?.message?.slice(0, 60));
+    }
+
+    // Check for unsigned contracts (matched by slug prefix)
+    if (student) {
+      try {
+        const wuPrefix = `wu-${execution.workUnitId.slice(0, 8)}-`;
+        const allActive = await db.legalAgreement.findMany({
+          where: { status: 'active' },
+          select: { id: true, slug: true },
+        });
+        const relevant = allActive.filter((c: any) => c.slug.startsWith(wuPrefix) || !c.slug.startsWith('wu-'));
+        if (relevant.length > 0) {
+          const signatures = await (db as any).agreementSignature.findMany({
+            where: { studentId: student.id, agreementId: { in: relevant.map((c: any) => c.id) } },
+          });
+          requiresContract = signatures.length < relevant.length;
+        }
+      } catch (err: any) {
+        console.warn('[OnboardingStatus] Contract check failed:', err?.message?.slice(0, 60));
+      }
+    }
+
+    // Check for screening interview
+    if (execution.workUnit.infoCollectionTemplateId && !execution.infoSessionId) {
+      requiresScreening = true;
+    }
+
+    return reply.send({ requiresOnboarding, requiresContract, requiresScreening });
+  });
 
   // POST /:id/clock-in
   fastify.post<{ Params: { id: string } }>(
@@ -616,6 +767,203 @@ export async function executionRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // POST /:id/milestones/:milestoneId/submit — Student submits a milestone
+  fastify.post<{ Params: { id: string; milestoneId: string }; Body: { evidenceUrl?: string; fileUrls?: string[]; notes?: string } }>(
+    '/:id/milestones/:milestoneId/submit',
+    async (request, reply) => {
+      const student = (request as any).student;
+      if (!student) return forbidden(reply, 'Only students can submit milestones');
+
+      const { id, milestoneId } = request.params;
+      const { evidenceUrl, fileUrls, notes } = request.body;
+
+      const execution = await db.execution.findFirst({
+        where: { id, studentId: student.id },
+        include: { workUnit: true },
+      });
+      if (!execution) return notFound(reply, 'Execution not found');
+      if (['approved', 'failed', 'cancelled'].includes(execution.status)) {
+        return badRequest(reply, 'Execution already finalized');
+      }
+
+      const milestone = await (db as any).taskMilestone.findFirst({
+        where: { id: milestoneId, executionId: id },
+        include: { template: true },
+      });
+      if (!milestone) return notFound(reply, 'Milestone not found');
+      if (milestone.status === 'approved') return badRequest(reply, 'Milestone already approved');
+
+      // Calculate payout amount for this milestone
+      const payoutPercent = milestone.template.payoutPercent || 0;
+      const payoutAmount = Math.round(execution.workUnit.priceInCents * (payoutPercent / 100));
+
+      const updated = await (db as any).taskMilestone.update({
+        where: { id: milestoneId },
+        data: {
+          status: milestone.template.requiresReview ? 'submitted' : 'approved',
+          submittedAt: new Date(),
+          completedAt: milestone.template.requiresReview ? null : new Date(),
+          evidenceUrl: evidenceUrl || null,
+          fileUrls: fileUrls || [],
+          notes: notes || null,
+          payoutAmountInCents: payoutAmount > 0 ? payoutAmount : null,
+        },
+        include: { template: true },
+      });
+
+      // If no review required, auto-approve
+      if (!milestone.template.requiresReview && payoutAmount > 0) {
+        await (db as any).taskMilestone.update({
+          where: { id: milestoneId },
+          data: { verifiedAt: new Date(), verifiedBy: 'auto', payoutStatus: 'completed' },
+        });
+      }
+
+      // Notify company about milestone submission
+      try {
+        const company = await db.companyProfile.findUnique({ where: { id: execution.workUnit.companyId } });
+        if (company) {
+          await db.notification.create({
+            data: {
+              userId: company.userId,
+              userType: 'company',
+              type: 'milestone_submitted',
+              title: 'Milestone Submitted',
+              body: `${student.name} submitted "${milestone.template.description}" for "${execution.workUnit.title}"`,
+              data: { executionId: id, milestoneId, workUnitId: execution.workUnitId },
+              channels: ['in_app'],
+            },
+          });
+        }
+      } catch {}
+
+      return reply.send({ success: true, milestone: updated });
+    }
+  );
+
+  // POST /:id/milestones/:milestoneId/complete — Backward compat alias
+  fastify.post<{ Params: { id: string; milestoneId: string }; Body: { evidenceUrl?: string; notes?: string } }>(
+    '/:id/milestones/:milestoneId/complete',
+    async (request, reply) => {
+      // Redirect to the submit endpoint
+      const { id, milestoneId } = request.params;
+      const { evidenceUrl, notes } = request.body;
+      const student = (request as any).student;
+      if (!student) return forbidden(reply, 'Only students can complete milestones');
+
+      const milestone = await (db as any).taskMilestone.findFirst({
+        where: { id: milestoneId, executionId: id },
+        include: { template: true },
+      });
+      if (!milestone) return notFound(reply, 'Milestone not found');
+
+      await (db as any).taskMilestone.update({
+        where: { id: milestoneId },
+        data: {
+          status: 'submitted',
+          submittedAt: new Date(),
+          completedAt: new Date(),
+          evidenceUrl: evidenceUrl || null,
+          notes: notes || null,
+        },
+        include: { template: true },
+      });
+
+      return reply.send({ success: true });
+    }
+  );
+
+  // POST /:id/milestones/:milestoneId/review — Company reviews a milestone submission
+  fastify.post<{ Params: { id: string; milestoneId: string }; Body: { verdict: 'approved' | 'revision_needed'; feedback?: string } }>(
+    '/:id/milestones/:milestoneId/review',
+    async (request, reply) => {
+      const company = (request as any).company;
+      if (!company) return forbidden(reply, 'Only companies can review milestones');
+
+      const { id, milestoneId } = request.params;
+      const { verdict, feedback } = request.body;
+
+      const execution = await db.execution.findFirst({
+        where: { id, workUnit: { companyId: company.id } },
+        include: { workUnit: true, student: { select: { name: true, id: true } } },
+      });
+      if (!execution) return notFound(reply, 'Execution not found');
+
+      const milestone = await (db as any).taskMilestone.findFirst({
+        where: { id: milestoneId, executionId: id },
+        include: { template: true },
+      });
+      if (!milestone) return notFound(reply, 'Milestone not found');
+      if (milestone.status !== 'submitted') return badRequest(reply, 'Milestone not submitted for review');
+
+      if (verdict === 'approved') {
+        await (db as any).taskMilestone.update({
+          where: { id: milestoneId },
+          data: {
+            status: 'approved',
+            completedAt: new Date(),
+            verifiedAt: new Date(),
+            verifiedBy: 'company',
+            payoutStatus: milestone.payoutAmountInCents > 0 ? 'processing' : 'completed',
+          },
+        });
+
+        // Trigger milestone payout if amount > 0
+        if (milestone.payoutAmountInCents > 0 && execution.student) {
+          // Queue payout (handled by payout worker)
+          try {
+            const studentProfile = await db.studentProfile.findUnique({ where: { id: execution.studentId } });
+            if (studentProfile?.stripeConnectId) {
+              const { createTransfer } = await import('../lib/stripe-service.js');
+              await createTransfer({
+                amountInCents: milestone.payoutAmountInCents,
+                destinationAccountId: studentProfile.stripeConnectId,
+                executionId: id,
+                description: `Milestone payout: ${milestone.template.description}`,
+              });
+              await (db as any).taskMilestone.update({
+                where: { id: milestoneId },
+                data: { payoutStatus: 'completed' },
+              });
+            }
+          } catch (err: any) {
+            console.error('[MilestoneReview] Payout failed:', err?.message?.slice(0, 100));
+          }
+        }
+      } else {
+        // Revision needed
+        await (db as any).taskMilestone.update({
+          where: { id: milestoneId },
+          data: {
+            status: 'revision_needed',
+            revisionNotes: feedback || 'Please revise and resubmit.',
+            completedAt: null,
+            submittedAt: null,
+          },
+        });
+      }
+
+      // Notify student
+      try {
+        await db.notification.create({
+          data: {
+            userId: execution.student.id,
+            userType: 'student',
+            type: verdict === 'approved' ? 'milestone_approved' : 'milestone_revision',
+            title: verdict === 'approved' ? 'Milestone Approved' : 'Revision Requested',
+            body: verdict === 'approved'
+              ? `"${milestone.template.description}" approved${milestone.payoutAmountInCents > 0 ? ` — $${(milestone.payoutAmountInCents / 100).toFixed(2)} payout processing` : ''}`
+              : `"${milestone.template.description}" needs revision: ${feedback || 'See notes'}`,
+            data: { executionId: id, milestoneId },
+            channels: ['in_app'],
+          },
+        });
+      } catch {}
+
+      return reply.send({ success: true, verdict });
+    }
+  );
+
   // POST /:id/submit
   fastify.post<{ Params: { id: string }; Body: SubmitDeliverableBody }>(
     '/:id/submit',
@@ -687,48 +1035,6 @@ export async function executionRoutes(fastify: FastifyInstance) {
           },
         });
       }
-
-      return reply.send(updated);
-    }
-  );
-
-  // POST /:id/milestones/:milestoneId/complete
-  fastify.post<{ Params: { id: string; milestoneId: string }; Body: CompleteMilestoneBody }>(
-    '/:id/milestones/:milestoneId/complete',
-    async (request, reply) => {
-      const student = (request as any).student;
-      if (!student) {
-        return forbidden(reply, 'Only students can complete milestones');
-      }
-
-      const { id, milestoneId } = request.params;
-      const { evidenceUrl, notes } = request.body;
-
-      const milestone = await db.taskMilestone.findFirst({
-        where: {
-          id: milestoneId,
-          executionId: id,
-          execution: { studentId: student.id },
-        },
-        include: { template: true, execution: { include: { workUnit: true } } },
-      });
-
-      if (!milestone) {
-        return notFound(reply, 'Milestone not found');
-      }
-
-      if (milestone.completedAt) {
-        return badRequest(reply, 'Milestone already completed');
-      }
-
-      const updated = await db.taskMilestone.update({
-        where: { id: milestoneId },
-        data: {
-          completedAt: new Date(),
-          evidenceUrl,
-          notes,
-        },
-      });
 
       return reply.send(updated);
     }

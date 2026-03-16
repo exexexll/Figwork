@@ -671,7 +671,9 @@ export default async function onboardingConfigRoutes(
   });
 
   /**
-   * POST /api/onboarding-config/agreements/:id/sign — Student signs an agreement
+   * POST /api/onboarding-config/agreements/:id/sign — Student signs via DocuSign
+   * Creates a DocuSign envelope with the contract content, returns an embedded signing URL.
+   * If DocuSign is not configured, falls back to in-app electronic signature.
    */
   fastify.post('/agreements/:id/sign', async (request, reply) => {
     const authResult = await verifyClerkAuth(request, reply);
@@ -681,11 +683,7 @@ export default async function onboardingConfigRoutes(
     }
 
     const { id } = request.params as { id: string };
-    const { signedName } = request.body as { signedName: string };
-
-    if (!signedName || signedName.trim().length < 2) {
-      return badRequest(reply, 'Please type your full legal name to sign');
-    }
+    const { signedName, executionId } = request.body as { signedName?: string; executionId?: string };
 
     // Get student
     const student = await db.studentProfile.findUnique({
@@ -701,48 +699,192 @@ export default async function onboardingConfigRoutes(
       return notFound(reply, 'Agreement not found or not active');
     }
 
-    // Upsert signature (allows re-signing on version bump)
-    const signature = await _db.agreementSignature.upsert({
-      where: {
-        agreementId_studentId: {
+    // Check if already signed (prevent duplicate envelopes)
+    const existingSig = await _db.agreementSignature.findUnique({
+      where: { agreementId_studentId: { agreementId: id, studentId: student.id } },
+    });
+    if (existingSig && existingSig.agreementVersion >= agreement.version) {
+      return reply.send({
+        method: 'already_signed',
+        message: 'You have already signed this agreement.',
+        signature: { id: existingSig.id, signedAt: existingSig.signedAt },
+      });
+    }
+
+    // Try DocuSign first
+    try {
+      const { createEnvelope, getEmbeddedSigningUrl } = await import('../lib/docusign-service.js');
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      // DocuSign appends ?event=signing_complete|decline|cancel|ttl_expired|exception
+      const returnUrl = executionId
+        ? `${frontendUrl}/student/executions/${executionId}/onboard?signed=${id}`
+        : `${frontendUrl}/student/onboard?signed=${id}`;
+
+      // Convert contract content to properly formatted HTML for DocuSign
+      // The content may be plain text, markdown-ish, or HTML — normalize it
+      // Sanitize: strip <script> tags and event handlers to prevent XSS in DocuSign viewer
+      const rawContent = (agreement.content || '')
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/on\w+\s*=\s*"[^"]*"/gi, '')
+        .replace(/on\w+\s*=\s*'[^']*'/gi, '');
+      
+      // Convert plain text sections to HTML paragraphs
+      const formattedContent = rawContent
+        // If it already has HTML tags, leave them
+        .replace(/\n{2,}/g, '</p><p>')  // Double newlines → paragraph breaks
+        .replace(/\n/g, '<br/>')         // Single newlines → line breaks
+        .replace(/^(\d+)\.\s+(.+?)$/gm, '<h3>$1. $2</h3>')  // "1. Section Title" → <h3>
+        .replace(/^[-•]\s+(.+?)$/gm, '<li>$1</li>')          // Bullet points → list items
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')     // **bold** → <strong>
+        .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');          // Wrap list items
+
+      const contractHtml = `<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { font-family: 'Times New Roman', Georgia, serif; font-size: 11pt; line-height: 1.6; color: #1a1a1a; max-width: 700px; margin: 40px auto; padding: 0 40px; }
+  h1 { font-size: 16pt; text-align: center; margin-bottom: 4px; color: #111; }
+  h2 { font-size: 13pt; margin-top: 20px; color: #111; }
+  h3 { font-size: 11pt; font-weight: bold; margin-top: 16px; margin-bottom: 4px; }
+  p { margin: 8px 0; text-align: justify; }
+  .meta { text-align: center; color: #666; font-size: 9pt; margin-bottom: 24px; }
+  hr { border: none; border-top: 1px solid #ccc; margin: 20px 0; }
+  ul { margin: 8px 0 8px 20px; }
+  li { margin: 4px 0; }
+  .sig-block { margin-top: 40px; padding-top: 20px; border-top: 1px solid #999; }
+  .sig-line { border-bottom: 1px solid #333; width: 250px; margin: 30px 0 4px; }
+  .sig-label { font-size: 9pt; color: #666; }
+</style>
+</head>
+<body>
+  <h1>${agreement.title}</h1>
+  <div class="meta">Version ${agreement.version}</div>
+  <hr/>
+  <p>${formattedContent}</p>
+  <div class="sig-block">
+    <p><strong>CONTRACTOR</strong></p>
+    <div class="sig-line"></div>
+    <div class="sig-label">Signature /sig/</div>
+    <br/>
+    <div class="sig-line" style="width:180px"></div>
+    <div class="sig-label">Date /date/</div>
+    <br/>
+    <div class="sig-line"></div>
+    <div class="sig-label">Printed Name /name/</div>
+  </div>
+</body>
+</html>`;
+      const documentBase64 = Buffer.from(contractHtml).toString('base64');
+
+      // Create DocuSign envelope with embedded signing
+      const clientUserId = student.id; // For embedded signing
+      const envelope = await createEnvelope({
+        emailSubject: `Please sign: ${agreement.title}`,
+        emailBody: `You are required to sign this agreement before starting work on Figwork.`,
+        signers: [{
+          email: (student as any).user?.email || student.email,
+          name: student.name,
+          recipientId: '1',
+          clientUserId, // Marks as embedded signer
+          tabs: {
+            signHereTabs: [{ anchorString: '/sig/', anchorXOffset: '0', anchorYOffset: '0' }],
+            dateSignedTabs: [{ anchorString: '/date/', anchorXOffset: '0', anchorYOffset: '0' }],
+            fullNameTabs: [{ anchorString: '/name/', anchorXOffset: '0', anchorYOffset: '0' }],
+          },
+        } as any],
+        documents: [{
+          documentId: '1',
+          name: agreement.title,
+          documentBase64,
+          fileExtension: 'html',
+        }],
+        status: 'sent',
+        customFields: {
           agreementId: id,
           studentId: student.id,
+          platform: 'figwork',
         },
-      },
-      create: {
-        agreementId: id,
-        studentId: student.id,
-        agreementVersion: agreement.version,
-        signedName: signedName.trim(),
-        ipAddress: (request.ip || '').substring(0, 45),
-        userAgent: ((request.headers['user-agent'] as string) || '').substring(0, 500),
-      },
-      update: {
-        agreementVersion: agreement.version,
-        signedName: signedName.trim(),
-        signedAt: new Date(),
-        ipAddress: (request.ip || '').substring(0, 45),
-        userAgent: ((request.headers['user-agent'] as string) || '').substring(0, 500),
-      },
-    });
+      });
 
-    // Update contract status on the student profile
-    await db.studentProfile.update({
-      where: { id: student.id },
-      data: {
-        contractStatus: 'signed',
-        contractSignedAt: new Date(),
-      },
-    });
+      // Get embedded signing URL
+      const signing = await getEmbeddedSigningUrl({
+        envelopeId: envelope.envelopeId,
+        signerEmail: (student as any).user?.email || student.email,
+        signerName: student.name,
+        signerClientId: clientUserId,
+        returnUrl,
+      });
 
-    return {
-      signature: {
-        id: signature.id,
-        signedAt: signature.signedAt,
-        agreementVersion: signature.agreementVersion,
-      },
-      message: 'Agreement signed successfully',
-    };
+      // Store envelope ID on the signature record for tracking
+      await _db.agreementSignature.upsert({
+        where: { agreementId_studentId: { agreementId: id, studentId: student.id } },
+        create: {
+          agreementId: id,
+          studentId: student.id,
+          agreementVersion: agreement.version,
+          signedName: student.name,
+          ipAddress: (request.ip || '').substring(0, 45),
+          userAgent: ((request.headers['user-agent'] as string) || '').substring(0, 500),
+        },
+        update: {
+          agreementVersion: agreement.version,
+          signedName: student.name,
+          signedAt: new Date(),
+          ipAddress: (request.ip || '').substring(0, 45),
+          userAgent: ((request.headers['user-agent'] as string) || '').substring(0, 500),
+        },
+      });
+
+      // Update contract status
+      await db.studentProfile.update({
+        where: { id: student.id },
+        data: { contractStatus: 'signed', contractSignedAt: new Date() },
+      });
+
+      return {
+        signingUrl: signing.signingUrl,
+        envelopeId: envelope.envelopeId,
+        method: 'docusign',
+        message: 'Redirecting to DocuSign for signing',
+      };
+    } catch (docuSignErr: any) {
+      console.warn('[Sign] DocuSign failed, falling back to in-app:', docuSignErr?.message?.slice(0, 100));
+
+      // Fallback: in-app electronic signature
+      if (!signedName || signedName.trim().length < 2) {
+        return badRequest(reply, 'Please type your full legal name to sign');
+      }
+
+      const signature = await _db.agreementSignature.upsert({
+        where: { agreementId_studentId: { agreementId: id, studentId: student.id } },
+        create: {
+          agreementId: id,
+          studentId: student.id,
+          agreementVersion: agreement.version,
+          signedName: signedName.trim(),
+          ipAddress: (request.ip || '').substring(0, 45),
+          userAgent: ((request.headers['user-agent'] as string) || '').substring(0, 500),
+        },
+        update: {
+          agreementVersion: agreement.version,
+          signedName: signedName.trim(),
+          signedAt: new Date(),
+          ipAddress: (request.ip || '').substring(0, 45),
+          userAgent: ((request.headers['user-agent'] as string) || '').substring(0, 500),
+        },
+      });
+
+      await db.studentProfile.update({
+        where: { id: student.id },
+        data: { contractStatus: 'signed', contractSignedAt: new Date() },
+      });
+
+      return {
+        signature: { id: signature.id, signedAt: signature.signedAt, agreementVersion: signature.agreementVersion },
+        method: 'in_app',
+        message: 'Agreement signed successfully (in-app)',
+      };
+    }
   });
 
   /**
