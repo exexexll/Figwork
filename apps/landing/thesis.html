@@ -24,23 +24,29 @@
   <link rel="apple-touch-icon" href="iconfigwork.png" />
 
   <!-- Theme color for mobile browsers -->
-  <meta name="theme-color" content="#1a1a18" />
+  <meta name="theme-color" content="#FDFBF5" />
 
   <!-- Preconnect for fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=2" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css?v=215" />
 </head>
 <body class="thesis-page">
 
-  <canvas id="sunsetCanvas" aria-hidden="true"></canvas>
-  <div class="overlay" aria-hidden="true"></div>
-
-  <!-- Top-right nav back to home -->
-  <nav class="top-nav" role="navigation" aria-label="Main navigation">
-    <a href="index.html" class="nav-link">Home</a>
-  </nav>
+  <!-- Top bar: just the brand and a Home link, to stay consistent with the landing page. -->
+  <header class="top-bar" role="banner">
+    <a href="/" class="brand" aria-label="Figwork — home">
+      <img src="figwork-logo-dark.png" alt="Figwork" class="brand-logo" />
+    </a>
+    <span aria-hidden="true"></span>
+    <nav class="top-nav" aria-label="Primary">
+      <a href="index.html" class="nav-link">Home</a>
+    </nav>
+  </header>
 
   <main>
     <section class="thesis-section">
@@ -66,8 +72,15 @@
     </section>
   </main>
 
-  <footer></footer>
+  <footer class="site-footer">
+    <span>&copy; <span id="yr"></span> Figwork</span>
+    <a href="index.html" class="footer-link">Home</a>
+  </footer>
 
-  <script src="script.js?v=2"></script>
+  <script>
+    // Just the year — no other behavior on the thesis page.
+    var yr = document.getElementById('yr');
+    if (yr) yr.textContent = String(new Date().getFullYear());
+  </script>
 </body>
 </html>
